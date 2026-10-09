@@ -74,3 +74,8 @@ Requires JDK, Android SDK build-tools and NDK (paths at the top of `build_zygisk
 
 - `zygisk/zygisk.hpp` is the Zygisk module API header, copyright John "topjohnwu" Wu, under a permissive license (see the file header). The original copyright notice is retained.
 
+## License
+
+Licensed under [GPL-3.0](LICENSE).
+
+

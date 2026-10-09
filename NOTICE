@@ -1,0 +1,13 @@
+PermKeeper
+Copyright (C) 2026 PermKeeper contributors
+
+This project is distributed under the GNU General Public License v3.0 (see LICENSE).
+
+Third-party components
+----------------------
+
+  zygisk/zygisk.hpp
+    Zygisk module API header.
+    Copyright 2022-2023 John "topjohnwu" Wu
+    Released under a permissive license; the original copyright and permission
+    notice are retained in the file header.

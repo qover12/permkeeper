@@ -74,3 +74,8 @@ python build_zygisk.py
 
 - `zygisk/zygisk.hpp` 为 Zygisk 模块 API 头文件，版权归 John "topjohnwu" Wu，采用宽松许可（见文件头），原始版权声明予以保留。
 
+## 许可证
+
+本项目采用 [GPL-3.0](LICENSE) 许可证。
+
+
