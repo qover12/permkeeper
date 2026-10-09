@@ -1,6 +1,6 @@
 # PermKeeper
 
-简体中文 · [English](#english)
+简体中文 | [English](README.en.md)
 
 一个 Magisk / KernelSU / SukiSU 的 Zygisk 模块。应用执行“清除数据”后，自动把它清除前的设置恢复回来。
 
@@ -14,9 +14,9 @@
 
 按每个应用**自身已有的状态**记录与恢复，不是固定清单，所以不同应用互不影响。
 
-## 工作原理
+## 原理
 
-模块注入 `system_server`，监听系统的 `PACKAGE_DATA_CLEARED` 广播；在系统完成权限重置后，按此前记录的状态回补。因为部分系统（如 HyperOS）会先发广播、后重置权限，模块会等权限存储稳定后再恢复，并校验重试。
+模块注入 `system_server`，监听系统的 `PACKAGE_DATA_CLEARED` 广播；在系统完成权限重置后，按此前记录的状态回补。部分系统（如 HyperOS）会先发广播、后重置权限，模块会等权限存储稳定后再恢复，并校验重试。
 
 ## 环境要求
 
@@ -33,7 +33,7 @@
 1. 打开模块的 WebUI（KsuWebUI，或管理器自带的 WebUI 入口）
 2. 在“选择应用”里勾选需要保护的应用。默认全部保护，取消勾选即为“排除”
 3. 改动即时生效并自动保存
-4. 导出 / 导入配置在 WebUI 内：
+4. 导出 / 导入在 WebUI 内：
    - **导出配置**：导出到 `/sdcard/Download/permkeeper/`
    - **导入并恢复权限设置**：按导出的快照覆盖各应用权限（权限集有变化的应用会跳过）
 
@@ -63,69 +63,3 @@ python build_zygisk.py
 
 - Doze 白名单、厂商自启动的实现随系统而异（小米走 AppOps，一加走 XML 文件）。
 - 无障碍服务、默认应用、通知使用权等非 AppOps 项暂不覆盖。
-
----
-
-## English
-
-A Zygisk module for Magisk / KernelSU / SukiSU. After an app's data is cleared, PermKeeper restores its previous settings.
-
-### What it restores
-
-- Runtime permissions
-- AppOps (including vendor ops such as Xiaomi `MIUIOP`: autostart, network, background launch)
-- Notifications (master switch and channels)
-- Battery / Doze whitelist
-- Autostart
-
-State is recorded and restored per app, based on what each app actually has, so apps don't affect one another.
-
-### How it works
-
-The module injects into `system_server` and listens for `PACKAGE_DATA_CLEARED`. After the system finishes resetting permissions, it restores the previously recorded state. Some ROMs (e.g. HyperOS) broadcast before the reset completes, so the module waits for the permission store to settle, then verifies and retries.
-
-### Requirements
-
-- Root: Magisk / KernelSU / SukiSU with Zygisk enabled
-- Tested: OnePlus ColorOS 16, Redmi HyperOS 4 (Android 17)
-
-### Install
-
-1. Install `permkeeper-zygisk.zip` in your root manager
-2. Reboot
-
-### Usage
-
-1. Open the module WebUI (KsuWebUI, or the WebUI entry in your manager)
-2. Select apps to protect. All are protected by default; unchecking an app excludes it
-3. Changes apply and save automatically
-4. Export / import are inside the WebUI:
-   - **Export**: writes to `/sdcard/Download/permkeeper/`
-   - **Import & restore**: overwrites each app's permissions from the snapshot (apps whose permission set changed are skipped)
-
-### Uninstall
-
-Remove the module in your manager and reboot. Generated caches (icons) are removed; `config.json` and exported files are kept.
-
-### Layout
-
-```
-zsrc/         Java sources injected into system_server
-zygisk/       Zygisk entry (C++) and API header
-webroot/      WebUI (index.html)
-module/       module.prop, post-fs-data.sh, uninstall.sh, permkeeper.sh
-build_zygisk.py   offline build script
-```
-
-### Build
-
-```
-python build_zygisk.py
-```
-
-Requires JDK, Android SDK build-tools and NDK (paths at the top of `build_zygisk.py`). Output: `out/permkeeper-zygisk.zip`.
-
-### Limitations
-
-- Doze whitelist and vendor autostart handling differ per ROM (Xiaomi via AppOps, OnePlus via an XML file).
-- Non-AppOps items such as accessibility services, default apps and notification access are not covered yet.
