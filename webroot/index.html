@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>PermKeeper</title>
+<style>
+  :root{--bg:#f2f3f5;--card:#fff;--text:#101114;--sub:#8b8d94;--line:rgba(0,0,0,.06);
+        --accent:#0a84ff;--field:#ececef;--chev:#c3c4c8}
+  @media (prefers-color-scheme: dark){
+    :root{--bg:#000;--card:#1c1c1e;--text:#f5f5f7;--sub:#98989f;--line:rgba(255,255,255,.08);
+          --accent:#0a84ff;--field:#2c2c2e;--chev:#5b5b60}}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"HarmonyOS Sans SC",Roboto,sans-serif;
+       font-size:15px;padding:8px 14px 40px;padding-top:max(8px,env(safe-area-inset-top))}
+  h1{font-size:26px;font-weight:800;margin:10px 4px 2px;letter-spacing:.3px}
+  .sub{color:var(--sub);font-size:13px;margin:0 4px 16px}
+  .card{background:var(--card);border-radius:18px;margin:0 0 14px;overflow:hidden;animation:fadeup .3s cubic-bezier(.2,.9,.25,1) both}
+  @keyframes fadeup{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .row{display:flex;align-items:center;min-height:54px;padding:0 16px}
+  .row+.row{border-top:1px solid var(--line)}
+  .row.link{cursor:pointer;transition:background .15s}
+  .row.link:active{background:var(--field)}
+  .row .grow{flex:1;min-width:0}
+  .row .title{font-size:15px}
+  .row .desc{color:var(--sub);font-size:12px;margin-top:2px}
+  .chev{color:var(--chev);font-size:20px;margin-left:8px}
+  .sw{position:relative;width:50px;height:30px;flex:none}
+  .sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0}
+  .sw i{position:absolute;inset:0;border-radius:15px;background:var(--field);transition:.2s}
+  .sw i::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;
+               background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .24s cubic-bezier(.2,1.3,.4,1)}
+  .sw input:checked+i{background:var(--accent)}
+  .sw input:checked+i::after{transform:translateX(20px)}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}
+  button{border:0;border-radius:14px;padding:12px 16px;font-size:14px;font-weight:600;background:var(--field);
+         color:var(--text);transition:transform .12s ease,opacity .12s ease}
+  button.pri{background:var(--accent);color:#fff}
+  button:active{opacity:.85;transform:scale(.96)}
+  .sheet{position:fixed;left:0;right:0;top:0;bottom:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;z-index:50;
+         opacity:0;pointer-events:none;visibility:hidden;
+         transition:opacity .25s ease,visibility 0s linear .25s}
+  .sheet.show{opacity:1;pointer-events:auto;visibility:visible;
+         transition:opacity .25s ease,visibility 0s}
+  .sheet .inner{background:var(--card);border-radius:20px 20px 0 0;width:100%;max-height:80vh;display:flex;flex-direction:column;
+                transform:translateY(100%);transition:transform .34s cubic-bezier(.2,.9,.25,1);padding-bottom:env(safe-area-inset-bottom)}
+  .sheet.show .inner{transform:translateY(0)}
+  /* 选择应用：高度固定，不随列表条目数量变化 */
+  #sheetSelect .inner{height:80vh;max-height:80vh}
+  .sheet .head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .sheet .head .t{font-size:17px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .search{flex:1;display:flex;background:var(--field);border-radius:12px;padding:8px 12px}
+  .search input{border:0;background:transparent;color:var(--text);font-size:14px;flex:1;outline:none}
+  .mini{font-size:13px;padding:8px 12px;border-radius:10px}
+  .tools{display:flex;gap:8px;align-items:center;padding:10px 16px;color:var(--sub);font-size:12px}
+  .tools button{font-size:13px;padding:7px 12px;border-radius:10px}
+  .list{overflow:auto;-webkit-overflow-scrolling:touch}
+  #apps{flex:1 1 auto;min-height:0}
+  .app{display:flex;align-items:center;padding:11px 16px;transition:background .15s}
+  .app:active{background:var(--field)}
+  .app+.app{border-top:1px solid var(--line)}
+  .app img{width:42px;height:42px;border-radius:10px;margin-right:14px;flex:none;background:var(--field);object-fit:contain}
+  .app .ph{width:42px;height:42px;border-radius:10px;margin-right:14px;flex:none;background:var(--field);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:var(--sub)}
+  .app.uninst .label{color:var(--sub)}
+  .badge{flex:none;margin-left:8px;font-size:10px;font-weight:600;color:var(--sub);background:var(--field);border-radius:6px;padding:2px 7px}
+  .app .meta{flex:1;min-width:0}
+  .app .label{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .app .pkg{font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .cbwrap{position:relative;width:26px;height:26px;flex:none}
+  .cbwrap input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0}
+  .cbwrap .box{position:absolute;inset:0;border-radius:9px;border:2px solid var(--chev);display:flex;align-items:center;justify-content:center;
+               transition:background .18s ease,border-color .18s ease,transform .18s ease}
+  .cbwrap .tick{width:15px;height:15px;transform:scale(0);opacity:0;transition:transform .2s cubic-bezier(.18,1.4,.4,1),opacity .1s ease}
+  .cbwrap input:checked+.box{background:var(--accent);border-color:var(--accent);animation:cbpop .26s cubic-bezier(.2,1.3,.4,1)}
+  .cbwrap input:checked+.box .tick{transform:scale(1);opacity:1}
+  @keyframes cbpop{0%{transform:scale(.8)}55%{transform:scale(1.12)}100%{transform:scale(1)}}
+  .cbwrap input:active+.box{transform:scale(.9)}
+  textarea{width:100%;height:120px;background:var(--field);color:var(--text);border:0;border-radius:12px;font-family:ui-monospace,monospace;font-size:12px;padding:10px;resize:vertical}
+  #log{color:var(--sub);font-size:12px;white-space:pre-wrap;margin-top:6px}
+  .cdlg{position:fixed;left:0;right:0;top:0;bottom:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;
+         opacity:0;pointer-events:none;visibility:hidden;transition:opacity .2s ease,visibility 0s linear .2s}
+  .cdlg.show{opacity:1;pointer-events:auto;visibility:visible;transition:opacity .2s ease,visibility 0s}
+  .cdlg .cbox{background:var(--card);color:var(--text);border-radius:16px;width:82%;max-width:420px;padding:20px 20px 16px;
+              box-shadow:0 12px 40px rgba(0,0,0,.3);transform:scale(.94);transition:transform .2s cubic-bezier(.2,1.2,.4,1)}
+  .cdlg.show .cbox{transform:scale(1)}
+  .cdlg .cmsg{font-size:15px;line-height:1.5;margin-bottom:18px;white-space:pre-wrap}
+  .cdlg .cbtns{display:flex;gap:10px;justify-content:flex-end}
+  .cdlg .cbtns button{min-width:84px}
+  .hidden{display:none!important}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+  <h1>PermKeeper</h1>
+  <div class="sub">清数据后保留应用权限 / 通知 / AppOps / 自启动</div>
+
+  <div class="card">
+    <div class="row"><div class="grow"><div class="title">包含系统应用</div>
+      <div class="desc">勾选后用户可见的系统应用也进入列表并纳入保护</div></div>
+      <label class="sw"><input type="checkbox" id="incSystem"><i></i></label></div>
+    <div class="row"><div class="grow"><div class="title">运行时权限</div></div>
+      <label class="sw"><input type="checkbox" class="cat" id="catPermissions"><i></i></label></div>
+    <div class="row"><div class="grow"><div class="title">通知（含类别）</div></div>
+      <label class="sw"><input type="checkbox" class="cat" id="catNotifications"><i></i></label></div>
+    <div class="row"><div class="grow"><div class="title">AppOps</div></div>
+      <label class="sw"><input type="checkbox" class="cat" id="catAppops"><i></i></label></div>
+    <div class="row"><div class="grow"><div class="title">自启动 / 省电</div></div>
+      <label class="sw"><input type="checkbox" class="cat" id="catAutostart"><i></i></label></div>
+  </div>
+
+  <div class="card">
+    <div class="row link" id="cardSelect">
+      <div class="grow"><div class="title">选择应用</div><div class="desc" id="selSummary">全部保护</div></div>
+      <span class="chev">›</span>
+    </div>
+    <div class="row link" id="cardImport">
+      <div class="grow"><div class="title">导入配置</div><div class="desc">粘贴 / 选择 JSON 文件</div></div>
+      <span class="chev">›</span>
+    </div>
+    <div class="row link" id="cardApplyImport">
+      <div class="grow"><div class="title">导入并恢复权限设置</div><div class="desc">按快照覆盖各应用权限（不一致的应用跳过）</div></div>
+      <span class="chev">›</span>
+    </div>
+    <div class="row link" id="cardExport">
+      <div class="grow"><div class="title">导出配置</div><div class="desc">含逐应用权限快照，导出到 /sdcard/Download/permkeeper/</div></div>
+      <span class="chev">›</span>
+    </div>
+  </div>
+
+  <div id="log"></div>
+
+  <div class="sheet" id="sheetSelect">
+    <div class="inner">
+      <div class="head"><div class="t">选择应用</div><button class="mini pri" id="selDone">完成</button></div>
+      <div class="tools" style="padding-bottom:0"><div class="search"><input id="search" placeholder="搜索应用 / 包名" autocomplete="off"></div></div>
+      <div class="tools"><button id="btnCheckAll">全选</button><button id="btnUncheckAll">全不选</button><span id="count"></span></div>
+      <div class="list" id="apps"></div>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheetApp">
+    <div class="inner">
+      <div class="head"><div class="t" id="appTitle">应用</div><button class="mini pri" id="appDone">完成</button></div>
+      <div class="list" style="overflow:visible">
+        <div class="row"><div class="grow"><div class="title">保护此应用</div>
+          <div class="desc" id="appPkg"></div></div>
+          <label class="sw"><input type="checkbox" id="aProtect"><i></i></label></div>
+        <div class="row"><div class="grow"><div class="title">运行时权限</div></div>
+          <label class="sw"><input type="checkbox" id="aPerm"><i></i></label></div>
+        <div class="row"><div class="grow"><div class="title">通知</div></div>
+          <label class="sw"><input type="checkbox" id="aNotif"><i></i></label></div>
+        <div class="row"><div class="grow"><div class="title">AppOps</div></div>
+          <label class="sw"><input type="checkbox" id="aOps"><i></i></label></div>
+        <div class="row"><div class="grow"><div class="title">自启动 / 省电</div></div>
+          <label class="sw"><input type="checkbox" id="aAuto"><i></i></label></div>
+      </div>
+      <div class="bar" style="padding:0 16px 14px"><button id="aClear">清除该应用的覆盖</button></div>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheetImport">
+    <div class="inner">
+      <div class="head"><div class="t" id="importTitle">导入配置</div><button class="mini pri" id="impDone">完成</button></div>
+      <div style="padding:14px 16px;overflow:auto">
+        <div class="desc" id="importHint" style="margin:0 0 8px"></div>
+        <textarea id="importBox" placeholder='{"permkeeper":2,...}'></textarea>
+        <div class="bar" style="margin:12px 0 0">
+          <button class="pri" id="btnApplyPaste">应用粘贴的内容</button>
+          <button id="btnPickFile">选择 JSON 文件</button>
+        </div>
+        <input type="file" id="fileInput" accept="application/json,.json" class="hidden">
+      </div>
+    </div>
+  </div>
+
+  <div class="cdlg" id="cdlg"><div class="cbox">
+    <div class="cmsg" id="cdlgMsg"></div>
+    <div class="cbtns"><button id="cdlgNo">取消</button><button class="pri" id="cdlgYes">确定</button></div>
+  </div></div>
+
+<script>
+const MOD="/data/adb/modules/permkeeper";
+const $=id=>document.getElementById(id);
+let LOG="";const log=m=>{LOG=((m+"\n"+LOG).split("\n").slice(0,12)).join("\n");$("log").textContent=LOG;};
+function bridge(){if(window.ksu&&typeof ksu.exec==="function")return "ksu";if(window.magisk&&typeof magisk.exec==="function")return "magisk";return null;}
+let cbSeq=0;
+function run(cmd){return new Promise(resolve=>{const b=bridge();
+  if(b==="ksu"){const id="__pk_cb"+(++cbSeq);let done=false;
+    const fin=v=>{if(done)return;done=true;try{delete window[id];}catch(_){}resolve(v==null?"":v);};
+    window[id]=(c,o,e)=>fin(o);
+    // KernelSU/KsuWebUI: exec(cmd, options(JSON string), callbackName)
+    try{ksu.exec(cmd,"{}",id);}catch(e){try{ksu.exec(cmd,null,id);}catch(e2){fin("");}}
+    setTimeout(()=>fin(""),15000);
+  }
+  else if(b==="magisk"){try{resolve(String(magisk.exec(cmd)||""));}catch(e){resolve("");}}else resolve("");});}
+function runIn(cmd,input){const b64=btoa(unescape(encodeURIComponent(input)));return run(`echo ${b64} | base64 -d | ${cmd}`);}
+
+// 软键盘：sheet 高度固定（80vh），不做任何自适应——键盘浮盖在列表下半部，
+// 搜索框在顶部始终可见，列表可滚动。点/滚非输入区或按 Esc/Back 收起键盘。
+function _isField(el){ if(!el) return false; if(el.tagName==="TEXTAREA") return true; if(el.tagName==="INPUT"){ const t=(el.type||"text").toLowerCase(); return t==="text"||t==="search"||t==="url"||t==="tel"||t==="email"||t==="password"||t==="number"||t===""; } return false; }
+function _blurField(){ const a=document.activeElement; if(_isField(a)) a.blur(); }
+document.addEventListener("pointerdown",e=>{ if(!_isField(e.target)) _blurField(); }, true);
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"||e.keyCode===4||e.key==="GoBack"){ _blurField(); } }, true);
+{ const a=document.getElementById("apps"); if(a) a.addEventListener("scroll",_blurField,{passive:true}); }
+
+let CFG={version:1,all:true,includeSystem:false,categories:{permissions:true,notifications:true,appops:true,autostart:true},apps:[],exclude:[],overrides:{}};
+let META=[];let curApp=null;let impMode="settings";
+const appsSet=new Set();const excludeSet=new Set();
+
+function isProtected(pkg){return !excludeSet.has(pkg);}
+function toggleProtected(pkg,on){if(on)excludeSet.delete(pkg);else excludeSet.add(pkg);}
+function selSummary(){
+  const sys=$("incSystem").checked?"（含系统）":"";
+  $("selSummary").textContent=excludeSet.size?("已排除 "+excludeSet.size+" 个应用"+sys):("全部保护"+sys);
+  $("count").textContent=excludeSet.size?("已排除 "+excludeSet.size):"全部保护";
+}
+
+function renderList(){
+  const q=$("search").value.trim().toLowerCase();
+  const box=$("apps");box.innerHTML="";
+  for(const m of META){
+    if(!$("incSystem").checked&&m.sys)continue;
+    if(q&&!((m.label||"").toLowerCase().includes(q)||m.pkg.toLowerCase().includes(q)))continue;
+    const uninst=(m.installed===false);
+    const d=document.createElement("div");d.className="app"+(uninst?" uninst":"");
+    let ic=document.createElement("img");
+    ic.alt="";
+    ic.src="icon/"+encodeURIComponent(m.pkg)+".png?v="+ICON_VER;
+    ic.onerror=()=>{ic.onerror=null;ic.src=PH;};
+    const md=document.createElement("div");md.className="meta";
+    const lb=document.createElement("div");lb.className="label";lb.textContent=m.label||m.pkg;
+    const pk=document.createElement("div");pk.className="pkg";pk.textContent=m.pkg;
+    md.appendChild(lb);md.appendChild(pk);
+    const wrap=document.createElement("label");wrap.className="cbwrap";
+    wrap.addEventListener("click",e=>e.stopPropagation());
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=isProtected(m.pkg);
+    cb.addEventListener("click",e=>e.stopPropagation());
+    cb.addEventListener("change",()=>{toggleProtected(m.pkg,cb.checked);selSummary();scheduleSave();});
+    const box2=document.createElement("span");box2.className="box";
+    box2.innerHTML='<svg class="tick" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    wrap.appendChild(cb);wrap.appendChild(box2);
+    // tap row (not the checkbox) opens per-app detail
+    d.addEventListener("click",()=>openApp(m.pkg,m.label));
+    d.appendChild(ic);d.appendChild(md);
+    if(uninst){const bd=document.createElement("span");bd.className="badge";bd.textContent="未安装";d.appendChild(bd);}
+    d.appendChild(wrap);
+    box.appendChild(d);
+  }
+}
+
+// 图标：模块生成到 /data/system/permkeeper/icon；这里用一条 root 命令同步到 webroot/icon（本地复制，不过 exec 数据），
+// 然后由 WebView 原生加载 icon/<pkg>.png —— 打开即完整、滚动零加载。
+const PH="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+let ICON_VER="0";
+async function syncIcons(){
+  try{
+    const out=await run(`WD=/data/adb/modules/permkeeper/webroot; SRC=/data/system/permkeeper/icon; if [ -d "$SRC" ] && { [ ! -d "$WD/icon" ] || [ "$SRC" -nt "$WD/icon" ]; }; then rm -rf "$WD/icon"; mkdir -p "$WD/icon"; cp -f "$SRC"/*.png "$WD/icon/" 2>/dev/null; chmod 644 "$WD/icon"/*.png 2>/dev/null; chcon u:object_r:system_file:s0 "$WD/icon" "$WD/icon"/*.png 2>/dev/null; fi; stat -c %Y "$WD/icon" 2>/dev/null || echo 0`);
+    ICON_VER=(out||"0").trim().replace(/[^0-9]/g,"")||"0";
+  }catch(e){ICON_VER="0";}
+}
+function catEff(pkg,c){const o=CFG.overrides[pkg];if(o&&o.cats&&Object.prototype.hasOwnProperty.call(o.cats,c))return !!o.cats[c];return !!CFG.categories[c];}
+function openApp(pkg,label){
+  curApp=pkg;
+  $("appTitle").textContent=label||pkg;$("appPkg").textContent=pkg;
+  $("aProtect").checked=isProtected(pkg);
+  $("aPerm").checked=catEff(pkg,"permissions");
+  $("aNotif").checked=catEff(pkg,"notifications");
+  $("aOps").checked=catEff(pkg,"appops");
+  $("aAuto").checked=catEff(pkg,"autostart");
+  $("sheetApp").classList.add("show");
+}
+function saveAppCats(){
+  if(!curApp)return;
+  const o=CFG.overrides[curApp]||{};
+  o.cats={permissions:$("aPerm").checked,notifications:$("aNotif").checked,appops:$("aOps").checked,autostart:$("aAuto").checked};
+  CFG.overrides[curApp]=o;
+  scheduleSave();
+}
+
+async function load(){
+  const DEF={version:1,all:true,includeSystem:false,categories:{permissions:true,notifications:true,appops:true,autostart:true},apps:[],exclude:[],overrides:{}};
+  let parsed={};
+  try{const cfg=await run(`sh ${MOD}/permkeeper.sh get`);if(cfg&&cfg.trim().startsWith("{"))parsed=JSON.parse(cfg);}catch(e){log("读取配置失败: "+e.message);}
+  CFG=Object.assign({},DEF,parsed);
+  CFG.categories=Object.assign({},DEF.categories,parsed.categories||{});
+  CFG.apps=Array.isArray(parsed.apps)?parsed.apps:[];
+  CFG.exclude=Array.isArray(parsed.exclude)?parsed.exclude:[];
+  CFG.overrides=(parsed.overrides&&typeof parsed.overrides==="object")?parsed.overrides:{};
+  delete CFG.mode;
+  $("incSystem").checked=!!CFG.includeSystem;
+  $("catPermissions").checked=!!CFG.categories.permissions;
+  $("catNotifications").checked=!!CFG.categories.notifications;
+  $("catAppops").checked=!!CFG.categories.appops;
+  $("catAutostart").checked=!!CFG.categories.autostart;
+  appsSet.clear();(CFG.apps||[]).forEach(p=>appsSet.add(p));
+  excludeSet.clear();(CFG.exclude||[]).forEach(p=>excludeSet.add(p));
+
+  let _rawLen=0;
+  try{const raw=await run(`cat /data/system/permkeeper/apps.json 2>/dev/null`);_rawLen=raw?raw.length:0;if(raw&&raw.trim().startsWith("["))META=JSON.parse(raw);}catch(e){}
+  if(!META.length){try{const out=await run(`sh ${MOD}/permkeeper.sh apps`);META=out.split("\n").map(s=>s.trim()).filter(Boolean).map(p=>({pkg:p,label:p,icon:"",installed:true}));}catch(e){}}
+  META.forEach(m=>{if(m.installed===undefined)m.installed=true;});
+  // 配置中引用、但已不在已安装列表里的包（已卸载）：补入列表并标记“未安装”，只保留名称+包名
+  let LABELS={};
+  try{const lj=await run(`sh ${MOD}/permkeeper.sh labels`);if(lj&&lj.trim().startsWith("{"))LABELS=JSON.parse(lj);}catch(e){}
+  const known=new Set(META.map(m=>m.pkg));
+  const refs=new Set([...(CFG.apps||[]),...(CFG.exclude||[]),...Object.keys(CFG.overrides||{})]);
+  refs.forEach(p=>{if(!p||known.has(p))return;known.add(p);META.push({pkg:p,label:LABELS[p]||p,icon:"",sys:false,installed:false});});
+  // 迁移旧的 opt-in 配置（all=false + apps 白名单）→ opt-out（默认全保护 + 例外）
+  if(CFG.all===false){const keep=new Set(CFG.apps||[]);META.forEach(m=>{if(!keep.has(m.pkg))excludeSet.add(m.pkg);});CFG.all=true;}
+  try{META.sort((a,b)=>(a.label||a.pkg).localeCompare(b.label||b.pkg,"zh-Hans-CN"));}catch(e){}
+  await syncIcons();
+  renderList();selSummary();log("已加载 "+META.length+" 个应用"+(bridge()?"":"［无 WebUI 桥］"));
+}
+function collect(){
+  return JSON.stringify({
+    version:1,
+    all:true,
+    includeSystem:$("incSystem").checked,
+    categories:{permissions:$("catPermissions").checked,notifications:$("catNotifications").checked,appops:$("catAppops").checked,autostart:$("catAutostart").checked},
+    apps:[],
+    exclude:[...excludeSet],
+    overrides:CFG.overrides
+  },null,2);
+}
+
+$("incSystem").addEventListener("change",()=>{renderList();selSummary();scheduleSave();});
+["catPermissions","catNotifications","catAppops","catAutostart"].forEach(id=>$(id).addEventListener("change",scheduleSave));
+$("cardSelect").onclick=()=>{$("search").value="";renderList();$("sheetSelect").classList.add("show");};
+$("cardImport").onclick=()=>openImport("settings");
+$("cardApplyImport").onclick=()=>openImport("apply");
+$("selDone").onclick=()=>{closeAll();selSummary();};
+$("appDone").onclick=()=>closeAll();
+$("impDone").onclick=()=>closeAll();
+$("search").addEventListener("input",renderList);
+$("btnCheckAll").onclick=()=>{const q=$("search").value.trim().toLowerCase();META.forEach(m=>{if(!$("incSystem").checked&&m.sys)return;if(q&&!((m.label||"").toLowerCase().includes(q)||m.pkg.toLowerCase().includes(q)))return;toggleProtected(m.pkg,true);});renderList();selSummary();scheduleSave();};
+$("btnUncheckAll").onclick=()=>{const q=$("search").value.trim().toLowerCase();META.forEach(m=>{if(!$("incSystem").checked&&m.sys)return;if(q&&!((m.label||"").toLowerCase().includes(q)||m.pkg.toLowerCase().includes(q)))return;toggleProtected(m.pkg,false);});renderList();selSummary();scheduleSave();};
+["aPerm","aNotif","aOps","aAuto"].forEach(id=>$(id).addEventListener("change",saveAppCats));
+$("aProtect").addEventListener("change",()=>{if(curApp){toggleProtected(curApp,$("aProtect").checked);renderList();selSummary();scheduleSave();}});
+$("aClear").onclick=()=>{if(curApp){delete CFG.overrides[curApp];openApp(curApp,$("appTitle").textContent);scheduleSave();}};
+
+function closeAll(){document.querySelectorAll(".sheet").forEach(s=>s.classList.remove("show"));}
+document.querySelectorAll(".sheet").forEach(s=>s.addEventListener("click",e=>{if(e.target===s)s.classList.remove("show");}));
+
+// 页面内确认弹窗（原生 confirm() 在 KsuWebUI 的 WebView 中不可用，会返回 false 导致点击无效）
+let _cdlgResolve=null;
+function askConfirm(msg){return new Promise(res=>{_cdlgResolve=res;$("cdlgMsg").textContent=msg;$("cdlg").classList.add("show");});}
+$("cdlgYes").onclick=()=>{const r=_cdlgResolve;_cdlgResolve=null;$("cdlg").classList.remove("show");if(r)r(true);};
+$("cdlgNo").onclick=()=>{const r=_cdlgResolve;_cdlgResolve=null;$("cdlg").classList.remove("show");if(r)r(false);};
+
+// 自动保存（改动即保存，防抖 500ms）
+let _saveTimer=null,_saveBusy=false,_savePending=false;
+function scheduleSave(){ if(_saveTimer)clearTimeout(_saveTimer); _saveTimer=setTimeout(doSave,500); }
+async function doSave(){
+  _saveTimer=null;
+  if(!bridge())return;
+  if(_saveBusy){_savePending=true;return;}
+  _saveBusy=true;
+  try{ await runIn(`sh ${MOD}/permkeeper.sh put`, collect()); log("已保存"); }
+  catch(e){ log("保存失败: "+e.message); }
+  _saveBusy=false;
+  if(_savePending){_savePending=false;doSave();}
+}
+
+// 导出：config + 逐应用权限快照(baseline)
+$("cardExport").onclick=async()=>{
+  if(!(await askConfirm("导出配置（含逐应用权限快照）到 /sdcard/Download/permkeeper/ ？")))return;
+  try{
+    const cfg=JSON.parse(collect());
+    let base={};
+    try{const bj=await run(`cat /data/system/permkeeper/baseline.json 2>/dev/null`);if(bj&&bj.trim().startsWith("{"))base=JSON.parse(bj);}catch(e){}
+    const bundle={permkeeper:2,exportedAt:new Date().toISOString(),config:cfg,apps:base};
+    const d=new Date();const p2=n=>String(n).padStart(2,"0");
+    const ts=d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+"-"+p2(d.getHours())+p2(d.getMinutes())+p2(d.getSeconds());
+    const path="/sdcard/Download/permkeeper/permkeeper-"+ts+".json";
+    await run(`mkdir -p /sdcard/Download/permkeeper`);
+    await runIn(`cat > ${path}`, JSON.stringify(bundle,null,2));
+    log("已导出: "+path);
+  }catch(e){log("导出失败: "+e.message);}
+};
+
+function openImport(mode){
+  impMode=mode;
+  $("importTitle").textContent=mode==="apply"?"导入并恢复权限设置":"导入配置";
+  $("importHint").textContent=mode==="apply"
+    ?"需含逐应用权限快照（用「导出配置」生成）。将按快照覆盖各应用权限；应用权限集与快照不一致（有增/有减）的应用会被跳过。"
+    :"导入全局配置（类别开关 / 例外名单 / 每应用覆盖）。";
+  $("importBox").value="";
+  $("sheetImport").classList.add("show");
+}
+
+async function doImport(txt){
+  if(!txt||!txt.trim()){log("没有可导入的内容");return;}
+  let obj;try{obj=JSON.parse(txt);}catch(e){log("JSON 无效: "+e.message);return;}
+  if(impMode==="apply"){
+    if(!obj||!obj.apps||typeof obj.apps!=="object"){log("该文件不含逐应用权限快照（请用「导出配置」生成）");return;}
+    if(!(await askConfirm("将按快照覆盖各应用运行时权限/AppOps；权限集与快照不一致（有增/有减）的应用会被跳过。确定继续？")))return;
+    try{
+      if(obj.config) await runIn(`sh ${MOD}/permkeeper.sh put`, JSON.stringify(obj.config));
+      let base={};
+      try{const bj=await run(`cat /data/system/permkeeper/baseline.json 2>/dev/null`);if(bj&&bj.trim().startsWith("{"))base=JSON.parse(bj);}catch(e){}
+      const setEq=(a,b)=>{const A=new Set(a||[]),B=new Set(b||[]);if(A.size!==B.size)return false;for(const x of A)if(!B.has(x))return false;return true;};
+      const modeName=m=>({0:"allow",1:"ignore",2:"deny"}[m]||null);
+      const safeId=s=>typeof s==="string" && /^[A-Za-z0-9_.]+$/.test(s);   // 防 root 命令注入
+      const apps=obj.apps;let applied=0,skipped=0,ops=0;
+      for(const pkg of Object.keys(apps)){
+        if(!safeId(pkg)){skipped++;continue;}               // 非法包名 → 跳过
+        const snap=apps[pkg]||{};const cur=base[pkg];
+        if(!cur){skipped++;continue;}                       // 未安装/未纳入 → 跳过
+        if(!setEq(cur.req,snap.req)){skipped++;continue;}   // 权限集变化 → 跳过
+        const curP=new Set(cur.perms||[]),snapP=new Set(snap.perms||[]);
+        for(const p of snapP) if(!curP.has(p) && safeId(p)) await run(`pm grant ${pkg} ${p}`);
+        for(const p of curP) if(!snapP.has(p) && safeId(p)) await run(`pm revoke ${pkg} ${p}`);
+        const curO=cur.appops||{},snapO=snap.appops||{};
+        for(const op of Object.keys(snapO)){if(!safeId(op))continue;const nm=modeName(snapO[op]);if(nm){await run(`appops set ${pkg} ${op} ${nm}`);ops++;}}
+        for(const op of Object.keys(curO)) if(!(op in snapO) && safeId(op)) await run(`appops set ${pkg} ${op} default`);
+        applied++;
+      }
+      log("已恢复权限：应用 "+applied+"，跳过 "+skipped+"（AppOps "+ops+"）");
+      closeAll();await load();
+    }catch(e){log("恢复失败: "+e.message);}
+  }else{
+    const cfg=(obj&&obj.permkeeper&&obj.config)?obj.config:obj;
+    if(!(await askConfirm("导入将覆盖当前配置，确定继续？")))return;
+    try{await runIn(`sh ${MOD}/permkeeper.sh put`, JSON.stringify(cfg));log("已导入配置");closeAll();await load();}catch(e){log("导入失败: "+e.message);}
+  }
+}
+$("btnApplyPaste").onclick=()=>doImport($("importBox").value);
+$("btnPickFile").onclick=()=>$("fileInput").click();
+$("fileInput").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{const tx=String(r.result);$("importBox").value=tx;doImport(tx);};r.readAsText(f);e.target.value="";});
+
+if(!bridge())log("警告：未检测到 WebUI exec 桥");
+load();
+</script>
+</body>
+</html>
