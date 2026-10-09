@@ -1,6 +1,6 @@
 # PermKeeper
 
-简体中文 | [English](README.en.md)
+[简体中文](README.md) | [English](README_EN.md)
 
 一个 Magisk / KernelSU / SukiSU 的 Zygisk 模块。应用执行“清除数据”后，自动把它清除前的设置恢复回来。
 
