@@ -59,7 +59,18 @@ python build_zygisk.py
 
 依赖：JDK、Android SDK build-tools、NDK（路径见 `build_zygisk.py` 顶部）。产物输出到 `out/permkeeper-zygisk.zip`。
 
+## 已测试范围
+
+- 系统：一加 ColorOS 16（Android 16）、红米 HyperOS 4（Android 17）
+- 恢复内容：运行时权限、特殊权限（如“显示悬浮窗”）、AppOps（含小米 `MIUIOP`：自启动 / 联网 / 后台弹出等）、通知（总开关与渠道）、省电（Doze 白名单）、自启动
+
 ## 已知限制
 
+- 上述范围**之外**（其它厂商 / 系统版本、未列出的 OEM 设置）**未经验证，可能不生效或表现不同**，请以实际设备为准。
+- 无障碍服务、默认应用、通知使用权等**非 AppOps** 项暂不覆盖。
 - Doze 白名单、厂商自启动的实现随系统而异（小米走 AppOps，一加走 XML 文件）。
-- 无障碍服务、默认应用、通知使用权等非 AppOps 项暂不覆盖。
+
+## 第三方
+
+- `zygisk/zygisk.hpp` 为 Zygisk 模块 API 头文件，版权归 John "topjohnwu" Wu，采用宽松许可（见文件头），原始版权声明予以保留。
+

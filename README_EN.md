@@ -59,7 +59,18 @@ python build_zygisk.py
 
 Requires JDK, Android SDK build-tools and NDK (paths at the top of `build_zygisk.py`). Output: `out/permkeeper-zygisk.zip`.
 
+## Tested scope
+
+- ROMs: OnePlus ColorOS 16 (Android 16), Redmi HyperOS 4 (Android 17)
+- Restored: runtime permissions, special permissions (e.g. "Display over other apps"), AppOps (including Xiaomi `MIUIOP`: autostart / network / background launch), notifications (master switch and channels), battery (Doze whitelist), autostart
+
 ## Limitations
 
-- Doze whitelist and vendor autostart handling differ per ROM (Xiaomi via AppOps, OnePlus via an XML file).
+- Anything **outside** the scope above (other vendors / OS versions, unlisted OEM settings) is untested and **may not work or may behave differently**. Results depend on the actual device.
 - Non-AppOps items such as accessibility services, default apps and notification access are not covered yet.
+- Doze whitelist and vendor autostart handling differ per ROM (Xiaomi via AppOps, OnePlus via an XML file).
+
+## Third-party
+
+- `zygisk/zygisk.hpp` is the Zygisk module API header, copyright John "topjohnwu" Wu, under a permissive license (see the file header). The original copyright notice is retained.
+
