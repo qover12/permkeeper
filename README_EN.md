@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README_EN.md)
 
-A Zygisk module for Magisk / KernelSU / SukiSU. After an app's data is cleared, PermKeeper restores its previous settings.
+A Zygisk module for Magisk / KernelSU / SukiSU. After an app's data is cleared, PermKeeper restores its previous settings. It can also export a config snapshot and, on import, batch-restore permissions and settings for all apps.
 
 ## What it restores
 
