@@ -5,21 +5,27 @@
 javac -> d8 -> dex_data.h -> NDK clang++ .so -> Magisk module zip
 """
 import os
+import platform
 import shutil
 import subprocess
 import sys
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SDK = os.environ.get("ANDROID_HOME") or r"C:\Users\Administrator\AppData\Local\Android\Sdk"
-BT = os.path.join(SDK, "build-tools", "36.1.0")
-PLATFORM = os.path.join(SDK, "platforms", "android-36", "android.jar")
-D8 = os.path.join(BT, "d8.bat")
+IS_WIN = os.name == "nt"
+SDK = (os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+       or r"C:\Users\Administrator\AppData\Local\Android\Sdk")
+BT = os.path.join(SDK, "build-tools", os.environ.get("BT_VERSION", "36.1.0"))
+PLATFORM = os.path.join(SDK, "platforms", os.environ.get("ANDROID_PLATFORM", "android-36"),
+                        "android.jar")
+D8 = os.path.join(BT, "d8.bat" if IS_WIN else "d8")
 
-TOOLCHAIN = os.path.join(HERE, "toolchain")
-NDK = os.path.join(TOOLCHAIN, "android-ndk-r27c")
-CLANG = os.path.join(NDK, "toolchains", "llvm", "prebuilt", "windows-x86_64", "bin",
-                     "aarch64-linux-android29-clang++.cmd")
+NDK = (os.environ.get("ANDROID_NDK_HOME") or os.environ.get("ANDROID_NDK_ROOT")
+       or os.path.join(HERE, "toolchain", "android-ndk-r27c"))
+_HOST = {"Windows": "windows-x86_64", "Linux": "linux-x86_64",
+         "Darwin": "darwin-x86_64"}.get(platform.system(), "linux-x86_64")
+CLANG = os.path.join(NDK, "toolchains", "llvm", "prebuilt", _HOST, "bin",
+                     "aarch64-linux-android29-clang++" + (".cmd" if IS_WIN else ""))
 
 BUILD = os.path.join(HERE, "build_z")
 OUT = os.path.join(HERE, "out")
