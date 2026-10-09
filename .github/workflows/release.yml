@@ -19,18 +19,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install SDK packages
-        run: sdkmanager "platforms;android-36" "build-tools;36.1.0"
-
-      - name: Install NDK r27c
-        run: sdkmanager "ndk;27.2.12479018"
+      - name: Install Android SDK packages
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          yes | "$SDKM" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+          "$SDKM" --sdk_root="$SDK" "platforms;android-36" "build-tools;36.1.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - name: Build module
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
-          python3 build_zygisk.py
+        run: python3 build_zygisk.py
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
