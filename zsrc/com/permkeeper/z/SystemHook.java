@@ -51,6 +51,12 @@ public final class SystemHook {
     private static final ScheduledExecutorService DEBOUNCE =
             Executors.newSingleThreadScheduledExecutor();
     private static final AtomicBoolean PENDING = new AtomicBoolean(false);
+    /** 保证同一时刻只有一个 exportAll 在跑（防重复触发）。 */
+    private static final AtomicBoolean EXPORTING = new AtomicBoolean(false);
+    /** 进度单调递进守卫（见 writeProgress）。 */
+    private static final Object PROGRESS_LOCK = new Object();
+    private static int sProgressHigh = 0;
+    private static int sProgressTotal = -1;
     // FileObserver holds watchers via WeakReference internally -> keep strong refs.
     private static final List<FileObserver> OBSERVERS = new ArrayList<>();
     private static Rom sRom;
@@ -297,15 +303,25 @@ public final class SystemHook {
     /** Watch for /data/system/permkeeper/export.req written by the WebUI to request a full snapshot. */
     private static void watchExportRequest() {
         try {
-            FileObserver o = new FileObserver(BASE_DIR,
-                    FileObserver.CREATE | FileObserver.MOVED_TO | FileObserver.CLOSE_WRITE) {
+            // 只监听 CLOSE_WRITE：单次写入只触发一次。若同时监听 CREATE，会收到多个事件，
+            // 导致同一个请求并发跑多遍 exportAll（进度条倒退、白跑一倍）。
+            FileObserver o = new FileObserver(BASE_DIR, FileObserver.CLOSE_WRITE) {
                 @Override
                 public void onEvent(int event, String path) {
                     if (path == null || !path.equals("export.req")) {
                         return;
                     }
+                    if (!EXPORTING.compareAndSet(false, true)) {
+                        return;  // 已有导出在跑，忽略重复触发
+                    }
                     log("export request received");
-                    EXEC.submit(() -> exportAll());
+                    EXEC.submit(() -> {
+                        try {
+                            exportAll();
+                        } finally {
+                            EXPORTING.set(false);
+                        }
+                    });
                 }
             };
             o.startWatching();
@@ -318,6 +334,9 @@ public final class SystemHook {
     /** Capture every installed app (not just protected ones) into export.json, then signal done. */
     private static void exportAll() {
         long startedAt = System.currentTimeMillis();
+        synchronized (PROGRESS_LOCK) {
+            sProgressHigh = 0;
+        }
         try {
             Context ctx = systemContext();
             if (ctx == null) {
@@ -329,7 +348,6 @@ public final class SystemHook {
             Map<String, List<Object[]>> proxy = buildProxyIndex(ctx, pm, pkgs);
             State.sProxyMap = proxy;
             State.sNotifReady = Notif.service() != null;
-            long captureStart = System.currentTimeMillis();
             final JSONObject out = new JSONObject();
             final int total = pkgs.size();
             final java.util.concurrent.atomic.AtomicInteger done =
@@ -402,14 +420,38 @@ public final class SystemHook {
                     }
                 }
             }
-            File f = new File(BASE_DIR, "export.json");
-            try (FileOutputStream fos = new FileOutputStream(f)) {
-                OutputStreamWriter w = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
-                w.write(out.toString());
-                w.flush();
-                w.close();
-            }
-            // signal completion (with internal timing so we can compare implementations)
+            // Wrap into the final bundle on-device: {permkeeper, exportedAt, config, apps}
+            // (done here so the WebView never has to carry ~1MB of JSON)
+            try {
+                JSONObject bundle = new JSONObject();
+                bundle.put("permkeeper", 2);
+                try {
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                            "yyyy-MM-dd'T'HH:mm:ss'Z'");
+                    sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                    bundle.put("exportedAt", sdf.format(new java.util.Date()));
+                } catch (Throwable ignore) {
+                }
+                try {
+                    File cf = new File(BASE_DIR, "export.config");
+                    if (cf.exists()) {
+                        bundle.put("config", new JSONObject(new String(
+                                Files.readAllBytes(cf.toPath()), StandardCharsets.UTF_8)));
+                        cf.delete();
+                    }
+                } catch (Throwable ignore) {
+                }
+                bundle.put("apps", out);
+                File bf = new File(BASE_DIR, "export.bundle.json");
+                try (FileOutputStream fos = new FileOutputStream(bf)) {
+                    OutputStreamWriter w = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
+                    w.write(bundle.toString(2));
+                    w.flush();
+                    w.close();
+                }
+            } catch (Throwable t) {
+                log("bundle write failed: " + t);
+            }            // signal completion (with internal timing so we can compare implementations)
             long elapsed = System.currentTimeMillis() - startedAt;
             try (FileOutputStream fos = new FileOutputStream(new File(BASE_DIR, "export.done"))) {
                 fos.write((done.get() + "|" + total + "|" + elapsed).getBytes(StandardCharsets.UTF_8));
@@ -424,9 +466,21 @@ public final class SystemHook {
 
     /** Write "done/total" so the WebUI can show real progress while exporting. */
     private static void writeProgress(int done, int total) {
-        try (FileOutputStream fos = new FileOutputStream(new File(BASE_DIR, "export.progress"))) {
-            fos.write((done + "/" + total).getBytes(StandardCharsets.UTF_8));
-        } catch (Throwable ignore) {
+        // 单调递进：多个采集线程各自持有一个 done 快照，若不设防，
+        // 慢线程可能把更大值覆盖回更小值，WebUI 上表现为进度条倒退。
+        synchronized (PROGRESS_LOCK) {
+            if (total == sProgressTotal && done <= sProgressHigh) {
+                return;
+            }
+            if (total != sProgressTotal) {
+                sProgressTotal = total;
+                sProgressHigh = 0;
+            }
+            sProgressHigh = done;
+            try (FileOutputStream fos = new FileOutputStream(new File(BASE_DIR, "export.progress"))) {
+                fos.write((done + "/" + total).getBytes(StandardCharsets.UTF_8));
+            } catch (Throwable ignore) {
+            }
         }
     }
 

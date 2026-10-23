@@ -111,6 +111,7 @@
   .toast.show{opacity:1;transform:translate(-50%,0)}
   .toast.ok{border-left:3px solid #34c759}
   .toast.err{border-left:3px solid #ff3b30}
+  .toast.info{border-left:3px solid #8e8e93}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -405,7 +406,7 @@ function updateProgress(done,total){
   $("pnum").textContent=done+" / "+total+"（"+pct+"%）";
 }
 function hideProgress(){ $("prog").classList.remove("show"); }
-$("pCancel").onclick=()=>{ __importCancelled=true; hideProgress(); toast("已取消","err"); };
+$("pCancel").onclick=()=>{ __importCancelled=true; hideProgress(); };
 function toast(msg,kind){
   const t=$("toast");
   t.textContent=msg;
@@ -413,6 +414,7 @@ function toast(msg,kind){
   if(__toastTimer)clearTimeout(__toastTimer);
   __toastTimer=setTimeout(()=>{ t.className="toast "+(kind||"ok"); },2500);
 }
+function toastInfo(msg){ toast(msg,"info"); }
 
 // 自动保存（改动即保存，防抖 500ms）
 let _saveTimer=null,_saveBusy=false,_savePending=false;
@@ -432,49 +434,57 @@ async function doSave(){
 $("cardExport").onclick=async()=>{
   if(!(await askConfirm("导出配置（含全部应用的权限快照）到 /sdcard/Download/permkeeper/ ？\n应用较多时需要十几秒。")))return;
   try{
-    const cfg=JSON.parse(collect());
-    await run(`rm -f /data/system/permkeeper/export.done /data/system/permkeeper/export.json /data/system/permkeeper/export.progress`);
+    // 1) 当前配置交给模块（模块把它与快照合成最终包，WebView 不搬运大数据）
+    await runIn(`cat > /data/system/permkeeper/export.config`, collect());
+    await run(`chown system:system /data/system/permkeeper/export.config; chmod 600 /data/system/permkeeper/export.config`);
+    // 2) 请求全量采集
+    await run(`rm -f /data/system/permkeeper/export.done /data/system/permkeeper/export.json /data/system/permkeeper/export.bundle.json /data/system/permkeeper/export.progress`);
     await runIn(`cat > /data/system/permkeeper/export.req`, "1");
+    toastInfo("开始导出，正在采集全部应用…");
     showProgress(0,"正在采集全部应用…",true);   // 不可取消
-    let base=null, lastPct=-1;
-    for(let i=0;i<240;i++){
-      await new Promise(r=>setTimeout(r,300));
+    let lastPct=-1, done=false, info="";
+    for(let i=0;i<400;i++){
+      await new Promise(r=>setTimeout(r,250));
       const pg=(await run(`cat /data/system/permkeeper/export.progress 2>/dev/null`)).trim();
       const m=pg.match(/^(\d+)\/(\d+)$/);
       if(m){
         const d=+m[1], t=+m[2];
         if(t>0){ const pct=Math.round(d*100/t); if(pct!==lastPct){ lastPct=pct; updateProgress(d,t); } }
       }
-      const done=(await run(`ls /data/system/permkeeper/export.done 2>/dev/null`)).trim();
-      if(done) break;
+      const fin=(await run(`cat /data/system/permkeeper/export.done 2>/dev/null`)).trim();
+      if(fin){ info=fin; done=true; break; }
     }
     hideProgress();
-    try{const ej=await run(`cat /data/system/permkeeper/export.json 2>/dev/null`);if(ej&&ej.trim().startsWith("{"))base=JSON.parse(ej);}catch(e){}
-    if(!base){
-      log("模块未返回全量数据，改用 baseline");
-      try{const bj=await run(`cat /data/system/permkeeper/baseline.json 2>/dev/null`);if(bj&&bj.trim().startsWith("{"))base=JSON.parse(bj);}catch(e){}
+    if(!done){
+      hideProgress();
+      await run(`rm -f /data/system/permkeeper/export.done /data/system/permkeeper/export.json /data/system/permkeeper/export.bundle.json /data/system/permkeeper/export.req /data/system/permkeeper/export.progress /data/system/permkeeper/export.config`);
+      toastInfo("导出超时，请重试"); log("导出超时"); return;
     }
-    const bundle={permkeeper:2,exportedAt:new Date().toISOString(),config:cfg,apps:base||{}};
+    // 3) 设备侧直接拷到下载目录
     const d=new Date();const p2=n=>String(n).padStart(2,"0");
     const ts=d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+"-"+p2(d.getHours())+p2(d.getMinutes())+p2(d.getSeconds());
     const path="/sdcard/Download/permkeeper/permkeeper-"+ts+".json";
     await run(`mkdir -p /sdcard/Download/permkeeper`);
-    await runIn(`cat > ${path}`, JSON.stringify(bundle,null,2));
-    await run(`rm -f /data/system/permkeeper/export.done /data/system/permkeeper/export.json /data/system/permkeeper/export.req /data/system/permkeeper/export.progress`);
-    const n=Object.keys(bundle.apps||{}).length;
-    log("已导出: "+path+"（"+n+" 个应用）");
-    toast("导出成功："+n+" 个应用","ok");
+    const parts=info.split("|");
+    const n=parts[0]||"?";
+    const el=parts[2]?("，"+(parseInt(parts[2])/1000).toFixed(1)+" 秒"):"";
+    const cp=await run(`cp /data/system/permkeeper/export.bundle.json ${path} 2>/dev/null && echo ok`);
+    await run(`rm -f /data/system/permkeeper/export.done /data/system/permkeeper/export.json /data/system/permkeeper/export.bundle.json /data/system/permkeeper/export.req /data/system/permkeeper/export.progress /data/system/permkeeper/export.config`);
+    if((cp||"").indexOf("ok")<0){ toast("导出失败","err"); log("导出失败：无法写入 "+path); return; }
+    log("已导出: "+path+"（"+n+" 个应用"+el+"）");
+    toast("导出成功："+n+" 个应用"+el,"ok");
   }catch(e){hideProgress();log("导出失败: "+e.message);toast("导出失败","err");}
 };
 
 // 读取真实系统状态：权限（dumpsys package）+ AppOps（appops get）
-async function readRealState(pkgs){
+async function readRealState(pkgs,onProgress){
   const out={};
   if(!pkgs.length) return out;
   // 一次性批量读取：每条命令输出用分隔符切开
   const CH=20;
   const chunks=[];
   for(let i=0;i<pkgs.length;i+=CH) chunks.push(pkgs.slice(i,i+CH));
+  let doneChunks=0;
   const results=await Promise.all(chunks.map(async list=>{
     const cmd=list.map(p=>`echo "@@${p}"; dumpsys package ${p} 2>/dev/null | grep -E 'android.permission.[A-Z_]+: granted=true'; echo "@@OPS"; appops get ${p} 2>/dev/null; echo "@@END"`).join('; ');
     let txt="";
@@ -496,6 +506,8 @@ async function readRealState(pkgs){
         if(id!==undefined && mode!==undefined) map[cur].appops[String(id)]=mode;
       }
     }
+    doneChunks++;
+    if(onProgress) onProgress(doneChunks*CH, pkgs.length);
     return map;
   }));
   for(const m of results) Object.assign(out,m);
@@ -559,7 +571,10 @@ async function doImport(txt){
       log("准备恢复 "+targets.length+" 个应用…");
 
       // 读取真实系统状态（分批并行，避免逐个慢）
-      const realState=await readRealState(targets);
+      toastInfo("开始导入，正在读取当前权限状态…");
+      showProgress(targets.length,"正在读取当前权限状态…",true);
+      const realState=await readRealState(targets,(d,t)=>updateProgress(Math.min(d,t),t));
+      hideProgress();
 
       for(const pkg of targets){
         const snap=apps[pkg]||{};
@@ -589,7 +604,8 @@ async function doImport(txt){
         base[pkg]=snap;   // 写回基线：快照里有的才覆盖，没的不动
         applied++;
       }
-      // 16 路并行执行；每批完成后更新进度（真实进度）
+      // 第二阶段：执行命令（可取消），总数=命令条数
+      showProgress(allCmds.length,"正在恢复权限…",false);
       let failed=0;
       if(allCmds.length){
         const PAR=16, BATCH=Math.ceil(allCmds.length/PAR);
@@ -606,9 +622,9 @@ async function doImport(txt){
         }));
         hideProgress();
       } else {
-        showProgress(0); hideProgress();
+        hideProgress();
       }
-      if(__importCancelled){ __importCancelled=false; log("已取消导入"); return; }
+      if(__importCancelled){ __importCancelled=false; hideProgress(); log("已取消导入"); toastInfo("已取消导入"); return; }
       // 保存更新后的 baseline
       try{ await runIn(`cat > /data/system/permkeeper/baseline.json`, JSON.stringify(base));
            await run(`chown system:system /data/system/permkeeper/baseline.json; chmod 600 /data/system/permkeeper/baseline.json; chcon u:object_r:system_data_file:s0 /data/system/permkeeper/baseline.json`);
@@ -616,7 +632,8 @@ async function doImport(txt){
       const summary="应用 "+applied+"，跳过（未安装 "+skippedUninst+"／不在范围 "+skippedScope+"），命令 "+allCmds.length;
       log("已恢复："+summary);
       closeAll();
-      toast(failed||skippedUninst?"导入完成（"+summary+"）":"导入成功："+summary, failed?"err":"ok");
+      // 只有真正的命令失败才算失败；跳过属正常
+      toast(failed?("导入完成，但有 "+failed+" 批失败（"+summary+"）"):("导入成功："+summary), failed?"err":"ok");
       await load();
     }catch(e){hideProgress();log("恢复失败: "+e.message);toast("导入失败："+e.message,"err");}
   }else{

@@ -21,7 +21,7 @@ The module injects into `system_server` and listens for `PACKAGE_DATA_CLEARED`. 
 ## Requirements
 
 - Root: Magisk / KernelSU / SukiSU with Zygisk enabled
-- Tested: OnePlus ColorOS 16, Redmi HyperOS 4 (Android 17)
+- Tested: OnePlus ColorOS 16, Redmi K80 Ultra HyperOS 4 (Android 17), Xiaomi 17 Pro Max HyperOS 4 (Android 17)
 
 ## Install
 
@@ -61,7 +61,7 @@ Requires JDK, Android SDK build-tools and NDK (paths at the top of `build_zygisk
 
 ## Tested scope
 
-- ROMs: OnePlus ColorOS 16 (Android 16), Redmi HyperOS 4 (Android 17)
+- ROMs: OnePlus ColorOS 16 (Android 16), Redmi K80 Ultra HyperOS 4 (Android 17), Xiaomi 17 Pro Max HyperOS 4 (Android 17)
 - Restored: runtime permissions, special permissions (e.g. "Display over other apps"), AppOps (including Xiaomi `MIUIOP`: autostart / network / background launch), notifications (master switch and channels), battery (Doze whitelist), autostart
 
 ## Limitations

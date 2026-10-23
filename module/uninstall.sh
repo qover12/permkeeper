@@ -5,6 +5,13 @@ rm -f /data/system/permkeeper/baseline.json
 rm -f /data/system/permkeeper/apps.json
 rm -f /data/system/permkeeper/labels.json
 rm -f /data/system/permkeeper/apply.json
+rm -f /data/system/permkeeper/export.req
+rm -f /data/system/permkeeper/export.done
+rm -f /data/system/permkeeper/export.progress
+rm -f /data/system/permkeeper/export.config
+rm -f /data/system/permkeeper/export.json
+rm -f /data/system/permkeeper/export.bundle.json
+rm -f /data/system/permkeeper/export.threads
 rm -f /data/system/permkeeper_apply.json
 rm -rf /data/system/permkeeper/icon
 rm -rf /data/adb/modules/permkeeper/webroot/icon

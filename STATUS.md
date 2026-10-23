@@ -130,18 +130,27 @@
 - 真机结果（用户测+自测）：**权限管理（含"显示悬浮窗"）、通知、省电、自启动、联网均已恢复**；自测 `悬浮窗`：基线 `op24=0` → 清数据后 `SYSTEM_ALERT_WINDOW: allow`（`restored rounds=1 ok`）。
 - **通用性**：按**每个应用自身的状态**抓取/恢复（非固定清单）——运行时权限全量、特殊 AppOp `0..200`、MIUI 自定义 op `10000..10200`（自启动/后台/联网等）、通知渠道、Doze、自启动。不同 app 的差异自动适配。真机 `com.kuaibao.skuaidi` 基线含 **143 个 appop**（含 op24 与 MIUIOP）。
 
+### 交互完善（本会话）
+- **toast 三色语义**：成功=绿(ok)/失败=红(err)/中性信息与取消=灰(info)；统一 2.5 秒自动消失。
+- **导出**：进度层实时显示 X / N（%）且**不可取消**；模块在设备端直接合成最终包 export.bundle.json，WebUI 只 cp 到下载目录——WebView 不再搬运 1MB JSON（省掉导出后数秒延迟）。
+- **导入**：两阶段进度——1)「正在读取当前权限状态…」X/N（不可取消）2)「正在恢复权限…」X/N（%）（可取消）；起始有信息 toast；完成 toast 只把**真失败**算红（未安装/不在范围属正常跳过）。
+- **导出改为卡片** #cardExport（与导入配置同款），无独立按钮。
+- **无保存按钮**：改动即自动保存（防抖 500ms，排队写入）。
 
+### 真机验证：小米 17 Pro Max / HyperOS4 通知渠道恢复（本会话）
+- 设备：`2509FPN0BC`（Xiaomi 17 Pro Max，popsicle，Android 17 / HyperOS OS4.0，KernelSU）。
+- 部署：新 `.so`(md5 `2d49a6ec…`) + `index.html`(md5 `922bcd5d…`) 推送后冷重启。
+- **A/B 对照（关键）**：用自建测试 APK `com.pkctrl`（3 个渠道 importance 2/4/0）
+  - **A 组**：移入 `exclude`（不受保护）→ `pm clear` 后渠道变为 `{}` **未恢复**
+  - **B 组**：移出 `exclude`、纳入 baseline → `pm clear` 后渠道 `2/4/0` **全部恢复**
+  - 日志：`clear-data com.pkctrl restored rounds=1 ok`
+  - 结论：**`pm clear` 确实会清掉通知渠道**，B 组能保住是模块恢复的结果，功能确认有效。
+- 京东实测：`com.jingdong.app.mall` 7 个渠道（含 6 个 mipush 子渠道 + 主渠道）清数据后与 baseline 逐项一致（`101915`/`138857`=3，其余=0）。
+- 京东权限：baseline 4 项（POST_NOTIFICATIONS、精/粗定位、ACCESS_LOCAL_NETWORK）清数据后 **4/4 恢复、无多余授予**。
+- 测试后已还原：卸载 `com.pkctrl`、baseline 回 71 项、exclude 回 353 项、设备无残留临时文件。
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+### 踩坑：模块日志“消失”是 logcat 缓冲太小
+- 现象：清数据后 `logcat -d -s PermKeeperZ` 恒为 0 条，但功能实际生效。
+- 根因：该机 logcat ring buffer **仅 64 KiB**，3 分钟即产生 ~4400 行；等 15~90 秒再抓时模块日志已被冲掉。
+- 正确抓法：**先起实时 `logcat -s PermKeeperZ:I` 后台流，再触发清数据**，即可看到 `restored rounds=N ok`。
+- 另注：`su 0` 下执行 `pm clear` 需经 `su`（`adb shell su 0 pm clear <pkg>`）；以 `shell`(uid 2000) 身份执行会报 `CLEAR_APP_USER_DATA` 拒绝。

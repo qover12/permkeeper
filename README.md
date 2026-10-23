@@ -21,7 +21,7 @@
 ## 环境要求
 
 - 已 Root：Magisk / KernelSU / SukiSU，且启用 Zygisk
-- 实测：一加 ColorOS 16、红米 HyperOS 4（Android 17）
+- 实测：一加 ColorOS 16、红米 K80 至尊版 HyperOS 4（Android 17）、小米 17 Pro Max HyperOS 4（Android 17）
 
 ## 安装
 
@@ -61,7 +61,7 @@ python build_zygisk.py
 
 ## 已测试范围
 
-- 系统：一加 ColorOS 16（Android 16）、红米 HyperOS 4（Android 17）
+- 系统：一加 ColorOS 16（Android 16）、红米 K80 至尊版 HyperOS 4（Android 17）、小米 17 Pro Max HyperOS 4（Android 17）
 - 恢复内容：运行时权限、特殊权限（如“显示悬浮窗”）、AppOps（含小米 `MIUIOP`：自启动 / 联网 / 后台弹出等）、通知（总开关与渠道）、省电（Doze 白名单）、自启动
 
 ## 已知限制
