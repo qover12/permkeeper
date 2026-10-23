@@ -92,6 +92,25 @@
   .cdlg .cbtns{display:flex;gap:10px;justify-content:flex-end}
   .cdlg .cbtns button{min-width:84px}
   .hidden{display:none!important}
+  /* 导入进度层 */
+  .prog{position:fixed;left:0;right:0;top:0;bottom:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;
+        z-index:300;opacity:0;pointer-events:none;visibility:hidden;transition:opacity .2s ease,visibility 0s linear .2s}
+  .prog.show{opacity:1;pointer-events:auto;visibility:visible;transition:opacity .2s ease,visibility 0s}
+  .prog .pbox{background:var(--card);color:var(--text);border-radius:16px;width:84%;max-width:420px;padding:20px;
+             box-shadow:0 12px 40px rgba(0,0,0,.35)}
+  .prog .ptitle{font-size:15px;font-weight:600;margin-bottom:12px}
+  .prog .ptrack{height:8px;border-radius:4px;background:var(--field);overflow:hidden;margin-bottom:10px}
+  .prog .pfill{height:100%;width:0;background:var(--accent);border-radius:4px;transition:width .25s ease}
+  .prog .pnum{font-size:12px;color:var(--sub);margin-bottom:16px}
+  .prog .pact{display:flex;justify-content:flex-end}
+  /* toast */
+  .toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translate(-50%,-12px);
+         background:var(--card);color:var(--text);border-radius:12px;padding:12px 18px;font-size:14px;z-index:400;
+         box-shadow:0 8px 28px rgba(0,0,0,.28);max-width:86vw;text-align:center;
+         opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s cubic-bezier(.2,1.2,.4,1)}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast.ok{border-left:3px solid #34c759}
+  .toast.err{border-left:3px solid #ff3b30}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -168,6 +187,14 @@
       <div class="head"><div class="t" id="importTitle">导入配置</div><button class="mini pri" id="impDone">完成</button></div>
       <div style="padding:14px 16px;overflow:auto">
         <div class="desc" id="importHint" style="margin:0 0 8px"></div>
+        <div id="applyScope" class="hidden" style="margin:0 0 12px">
+          <div class="desc" style="margin:0 0 6px">恢复范围</div>
+          <div class="bar" style="margin:0">
+            <button class="pri" id="scopeAll">全部应用</button>
+            <button id="scopeProt">仅受保护</button>
+          </div>
+          <div class="desc" id="scopeHint" style="margin:6px 0 0"></div>
+        </div>
         <textarea id="importBox" placeholder='{"permkeeper":2,...}'></textarea>
         <div class="bar" style="margin:12px 0 0">
           <button class="pri" id="btnApplyPaste">应用粘贴的内容</button>
@@ -182,6 +209,15 @@
     <div class="cmsg" id="cdlgMsg"></div>
     <div class="cbtns"><button id="cdlgNo">取消</button><button class="pri" id="cdlgYes">确定</button></div>
   </div></div>
+
+  <div class="prog" id="prog"><div class="pbox">
+    <div class="ptitle">正在恢复权限…</div>
+    <div class="ptrack"><div class="pfill" id="pfill"></div></div>
+    <div class="pnum" id="pnum">0%</div>
+    <div class="pact"><button id="pCancel">取消</button></div>
+  </div></div>
+
+  <div class="toast" id="toast"></div>
 
 <script>
 const MOD="/data/adb/modules/permkeeper";
@@ -352,6 +388,32 @@ function askConfirm(msg){return new Promise(res=>{_cdlgResolve=res;$("cdlgMsg").
 $("cdlgYes").onclick=()=>{const r=_cdlgResolve;_cdlgResolve=null;$("cdlg").classList.remove("show");if(r)r(true);};
 $("cdlgNo").onclick=()=>{const r=_cdlgResolve;_cdlgResolve=null;$("cdlg").classList.remove("show");if(r)r(false);};
 
+// ---- 进度层 & toast ----
+let __importCancelled=false, __toastTimer=null;
+function showProgress(total,title,noCancel){
+  __importCancelled=false;
+  $("pfill").style.width="0%";
+  $("pnum").textContent = total?("0 / "+total):"";
+  document.querySelector("#prog .ptitle").textContent = title || "正在恢复权限…";
+  $("pCancel").classList.toggle("hidden", !!noCancel);
+  $("prog").classList.add("show");
+}
+function updateProgress(done,total){
+  if(!total)return;
+  const pct=Math.min(100,Math.round(done*100/total));
+  $("pfill").style.width=pct+"%";
+  $("pnum").textContent=done+" / "+total+"（"+pct+"%）";
+}
+function hideProgress(){ $("prog").classList.remove("show"); }
+$("pCancel").onclick=()=>{ __importCancelled=true; hideProgress(); toast("已取消","err"); };
+function toast(msg,kind){
+  const t=$("toast");
+  t.textContent=msg;
+  t.className="toast show "+(kind||"ok");
+  if(__toastTimer)clearTimeout(__toastTimer);
+  __toastTimer=setTimeout(()=>{ t.className="toast "+(kind||"ok"); },2500);
+}
+
 // 自动保存（改动即保存，防抖 500ms）
 let _saveTimer=null,_saveBusy=false,_savePending=false;
 function scheduleSave(){ if(_saveTimer)clearTimeout(_saveTimer); _saveTimer=setTimeout(doSave,500); }
@@ -366,63 +428,197 @@ async function doSave(){
   if(_savePending){_savePending=false;doSave();}
 }
 
-// 导出：config + 逐应用权限快照(baseline)
+// 导出：config + 全部已安装应用的快照（由模块现场采集）
 $("cardExport").onclick=async()=>{
-  if(!(await askConfirm("导出配置（含逐应用权限快照）到 /sdcard/Download/permkeeper/ ？")))return;
+  if(!(await askConfirm("导出配置（含全部应用的权限快照）到 /sdcard/Download/permkeeper/ ？\n应用较多时需要十几秒。")))return;
   try{
     const cfg=JSON.parse(collect());
-    let base={};
-    try{const bj=await run(`cat /data/system/permkeeper/baseline.json 2>/dev/null`);if(bj&&bj.trim().startsWith("{"))base=JSON.parse(bj);}catch(e){}
-    const bundle={permkeeper:2,exportedAt:new Date().toISOString(),config:cfg,apps:base};
+    await run(`rm -f /data/system/permkeeper/export.done /data/system/permkeeper/export.json /data/system/permkeeper/export.progress`);
+    await runIn(`cat > /data/system/permkeeper/export.req`, "1");
+    showProgress(0,"正在采集全部应用…",true);   // 不可取消
+    let base=null, lastPct=-1;
+    for(let i=0;i<240;i++){
+      await new Promise(r=>setTimeout(r,300));
+      const pg=(await run(`cat /data/system/permkeeper/export.progress 2>/dev/null`)).trim();
+      const m=pg.match(/^(\d+)\/(\d+)$/);
+      if(m){
+        const d=+m[1], t=+m[2];
+        if(t>0){ const pct=Math.round(d*100/t); if(pct!==lastPct){ lastPct=pct; updateProgress(d,t); } }
+      }
+      const done=(await run(`ls /data/system/permkeeper/export.done 2>/dev/null`)).trim();
+      if(done) break;
+    }
+    hideProgress();
+    try{const ej=await run(`cat /data/system/permkeeper/export.json 2>/dev/null`);if(ej&&ej.trim().startsWith("{"))base=JSON.parse(ej);}catch(e){}
+    if(!base){
+      log("模块未返回全量数据，改用 baseline");
+      try{const bj=await run(`cat /data/system/permkeeper/baseline.json 2>/dev/null`);if(bj&&bj.trim().startsWith("{"))base=JSON.parse(bj);}catch(e){}
+    }
+    const bundle={permkeeper:2,exportedAt:new Date().toISOString(),config:cfg,apps:base||{}};
     const d=new Date();const p2=n=>String(n).padStart(2,"0");
     const ts=d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+"-"+p2(d.getHours())+p2(d.getMinutes())+p2(d.getSeconds());
     const path="/sdcard/Download/permkeeper/permkeeper-"+ts+".json";
     await run(`mkdir -p /sdcard/Download/permkeeper`);
     await runIn(`cat > ${path}`, JSON.stringify(bundle,null,2));
-    log("已导出: "+path);
-  }catch(e){log("导出失败: "+e.message);}
+    await run(`rm -f /data/system/permkeeper/export.done /data/system/permkeeper/export.json /data/system/permkeeper/export.req /data/system/permkeeper/export.progress`);
+    const n=Object.keys(bundle.apps||{}).length;
+    log("已导出: "+path+"（"+n+" 个应用）");
+    toast("导出成功："+n+" 个应用","ok");
+  }catch(e){hideProgress();log("导出失败: "+e.message);toast("导出失败","err");}
 };
+
+// 读取真实系统状态：权限（dumpsys package）+ AppOps（appops get）
+async function readRealState(pkgs){
+  const out={};
+  if(!pkgs.length) return out;
+  // 一次性批量读取：每条命令输出用分隔符切开
+  const CH=20;
+  const chunks=[];
+  for(let i=0;i<pkgs.length;i+=CH) chunks.push(pkgs.slice(i,i+CH));
+  const results=await Promise.all(chunks.map(async list=>{
+    const cmd=list.map(p=>`echo "@@${p}"; dumpsys package ${p} 2>/dev/null | grep -E 'android.permission.[A-Z_]+: granted=true'; echo "@@OPS"; appops get ${p} 2>/dev/null; echo "@@END"`).join('; ');
+    let txt="";
+    try{ txt=await run(cmd); }catch(e){ return {}; }
+    const map={};
+    let cur=null;
+    for(const line of String(txt).split("\n")){
+      const m=line.match(/^@@([A-Za-z0-9_.]+)$/);
+      if(m){ cur=m[1]; map[cur]={perms:[],appops:{}}; continue; }
+      if(line.trim()==="@@OPS"||line.trim()==="@@END"){ continue; }
+      if(!cur) continue;
+      const pm=line.match(/android\.permission\.([A-Z_0-9]+):\s*granted=true/);
+      if(pm){ map[cur].perms.push("android.permission."+pm[1]); continue; }
+      // appops get 输出形如：CAMERA: allow / MIUIOP(10001): ignore / Uid mode: READ_CONTACTS: ignore
+      const om=line.match(/^(?:Uid mode:\s*)?([A-Za-z_0-9]+)(?:\((\d+)\))?:\s*(allow|ignore|deny|default)/);
+      if(om){
+        const id=om[2];   // 只有 MIUIOP(10001) 这种带括号的才有 id；AOSP 名字 op 不参与比对
+        const mode={allow:0,ignore:1,deny:2,default:3}[om[3]];
+        if(id!==undefined && mode!==undefined) map[cur].appops[String(id)]=mode;
+      }
+    }
+    return map;
+  }));
+  for(const m of results) Object.assign(out,m);
+  return out;
+}
 
 function openImport(mode){
   impMode=mode;
   $("importTitle").textContent=mode==="apply"?"导入并恢复权限设置":"导入配置";
   $("importHint").textContent=mode==="apply"
-    ?"需含逐应用权限快照（用「导出配置」生成）。将按快照覆盖各应用权限；应用权限集与快照不一致（有增/有减）的应用会被跳过。"
+    ?"需含逐应用权限快照（用「导出配置」生成）。将按快照覆盖各应用权限。"
     :"导入全局配置（类别开关 / 例外名单 / 每应用覆盖）。";
+  $("applyScope").classList.toggle("hidden",mode!=="apply");
+  setScope("all");
   $("importBox").value="";
   $("sheetImport").classList.add("show");
 }
+
+// 导入范围：all = 全部应用（忽略 exclude）/ prot = 仅受保护（遵守 exclude）
+let impScope="all";
+function setScope(v){
+  impScope=v;
+  $("scopeAll").className = v==="all" ? "pri" : "";
+  $("scopeProt").className = v==="prot" ? "pri" : "";
+  $("scopeHint").textContent = v==="all"
+    ? "覆盖所有已安装应用（含被排除的）" + ($("incSystem").checked ? "，并包含系统应用" : "，不含系统应用")
+    : "只覆盖当前受保护的应用（" + (excludeSet.size?("已排除 "+excludeSet.size+" 个"):"全部保护") + "）";
+}
+$("scopeAll").onclick=()=>setScope("all");
+$("scopeProt").onclick=()=>setScope("prot");
 
 async function doImport(txt){
   if(!txt||!txt.trim()){log("没有可导入的内容");return;}
   let obj;try{obj=JSON.parse(txt);}catch(e){log("JSON 无效: "+e.message);return;}
   if(impMode==="apply"){
     if(!obj||!obj.apps||typeof obj.apps!=="object"){log("该文件不含逐应用权限快照（请用「导出配置」生成）");return;}
-    if(!(await askConfirm("将按快照覆盖各应用运行时权限/AppOps；权限集与快照不一致（有增/有减）的应用会被跳过。确定继续？")))return;
+    const scopeTxt = impScope==="all" ? "全部应用（忽略排除名单）" : "仅受保护的应用";
+    if(!(await askConfirm("将按快照覆盖 "+scopeTxt+" 的运行时权限/AppOps/通知；未安装的跳过。确定继续？")))return;
     try{
       if(obj.config) await runIn(`sh ${MOD}/permkeeper.sh put`, JSON.stringify(obj.config));
+      // baseline 仅用于“恢复后写回”，比对基准用真实系统状态
       let base={};
       try{const bj=await run(`cat /data/system/permkeeper/baseline.json 2>/dev/null`);if(bj&&bj.trim().startsWith("{"))base=JSON.parse(bj);}catch(e){}
-      const setEq=(a,b)=>{const A=new Set(a||[]),B=new Set(b||[]);if(A.size!==B.size)return false;for(const x of A)if(!B.has(x))return false;return true;};
+      // 已安装应用集合（第三方 + 可选系统），由模块的 apps.json 提供
+      const installed=new Set(META.filter(m=>m.installed!==false).map(m=>m.pkg));
       const modeName=m=>({0:"allow",1:"ignore",2:"deny"}[m]||null);
       const safeId=s=>typeof s==="string" && /^[A-Za-z0-9_.]+$/.test(s);   // 防 root 命令注入
-      const apps=obj.apps;let applied=0,skipped=0,ops=0;
+      const dPerm=$("catPermissions").checked, dNotif=$("catNotifications").checked,
+            dOps=$("catAppops").checked, dAuto=$("catAutostart").checked;
+      const apps=obj.apps;let applied=0,skippedUninst=0,skippedScope=0,ops=0;
+      const allCmds=[];
+
+      // 选定要处理的应用
+      const targets=[];
       for(const pkg of Object.keys(apps)){
-        if(!safeId(pkg)){skipped++;continue;}               // 非法包名 → 跳过
-        const snap=apps[pkg]||{};const cur=base[pkg];
-        if(!cur){skipped++;continue;}                       // 未安装/未纳入 → 跳过
-        if(!setEq(cur.req,snap.req)){skipped++;continue;}   // 权限集变化 → 跳过
+        if(!safeId(pkg)){skippedUninst++;continue;}
+        if(!installed.has(pkg)){skippedUninst++;continue;}
+        if(impScope==="prot" && !isProtected(pkg)){skippedScope++;continue;}
+        targets.push(pkg);
+      }
+      log("准备恢复 "+targets.length+" 个应用…");
+
+      // 读取真实系统状态（分批并行，避免逐个慢）
+      const realState=await readRealState(targets);
+
+      for(const pkg of targets){
+        const snap=apps[pkg]||{};
+        const cur=realState[pkg]||{};
         const curP=new Set(cur.perms||[]),snapP=new Set(snap.perms||[]);
-        for(const p of snapP) if(!curP.has(p) && safeId(p)) await run(`pm grant ${pkg} ${p}`);
-        for(const p of curP) if(!snapP.has(p) && safeId(p)) await run(`pm revoke ${pkg} ${p}`);
-        const curO=cur.appops||{},snapO=snap.appops||{};
-        for(const op of Object.keys(snapO)){if(!safeId(op))continue;const nm=modeName(snapO[op]);if(nm){await run(`appops set ${pkg} ${op} ${nm}`);ops++;}}
-        for(const op of Object.keys(curO)) if(!(op in snapO) && safeId(op)) await run(`appops set ${pkg} ${op} default`);
+        if(dPerm){
+          for(const p of snapP) if(!curP.has(p) && safeId(p)) allCmds.push(`pm grant ${pkg} ${p}`);
+          for(const p of curP) if(!snapP.has(p) && safeId(p)) allCmds.push(`pm revoke ${pkg} ${p}`);
+        }
+        if(dOps){
+          const curO=cur.appops||{},snapO=snap.appops||{};
+          for(const op of Object.keys(snapO)){
+            if(!safeId(op))continue;
+            const want=snapO[op], have=curO[op];
+            if(have===want) continue;                    // 已一致 → 不下发
+            const nm=modeName(want);
+            if(nm){allCmds.push(`appops set ${pkg} ${op} ${nm}`);ops++;}
+          }
+          for(const op of Object.keys(curO)){
+            if(!safeId(op))continue;
+            if(op in snapO) continue;                    // 快照里也有 → 上面已处理
+            const have=curO[op];
+            if(have===3) continue;                       // DEFAULT(=3) 无需重置
+            allCmds.push(`appops set ${pkg} ${op} default`);
+          }
+        }
+        base[pkg]=snap;   // 写回基线：快照里有的才覆盖，没的不动
         applied++;
       }
-      log("已恢复权限：应用 "+applied+"，跳过 "+skipped+"（AppOps "+ops+"）");
-      closeAll();await load();
-    }catch(e){log("恢复失败: "+e.message);}
+      // 16 路并行执行；每批完成后更新进度（真实进度）
+      let failed=0;
+      if(allCmds.length){
+        const PAR=16, BATCH=Math.ceil(allCmds.length/PAR);
+        const batches=[];
+        for(let i=0;i<allCmds.length;i+=BATCH) batches.push(allCmds.slice(i,i+BATCH));
+        showProgress(allCmds.length);
+        let done=0;
+        await Promise.all(batches.map(async cmds=>{
+          if(__importCancelled) return;
+          try{ await run(cmds.join('; ')); }
+          catch(e){ failed++; }
+          done+=cmds.length;
+          if(!__importCancelled) updateProgress(done,allCmds.length);
+        }));
+        hideProgress();
+      } else {
+        showProgress(0); hideProgress();
+      }
+      if(__importCancelled){ __importCancelled=false; log("已取消导入"); return; }
+      // 保存更新后的 baseline
+      try{ await runIn(`cat > /data/system/permkeeper/baseline.json`, JSON.stringify(base));
+           await run(`chown system:system /data/system/permkeeper/baseline.json; chmod 600 /data/system/permkeeper/baseline.json; chcon u:object_r:system_data_file:s0 /data/system/permkeeper/baseline.json`);
+      }catch(e){}
+      const summary="应用 "+applied+"，跳过（未安装 "+skippedUninst+"／不在范围 "+skippedScope+"），命令 "+allCmds.length;
+      log("已恢复："+summary);
+      closeAll();
+      toast(failed||skippedUninst?"导入完成（"+summary+"）":"导入成功："+summary, failed?"err":"ok");
+      await load();
+    }catch(e){hideProgress();log("恢复失败: "+e.message);toast("导入失败："+e.message,"err");}
   }else{
     const cfg=(obj&&obj.permkeeper&&obj.config)?obj.config:obj;
     if(!(await askConfirm("导入将覆盖当前配置，确定继续？")))return;

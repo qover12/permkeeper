@@ -26,8 +26,10 @@ public final class Notif {
         }
         try {
             for (Method m : svc.getClass().getMethods()) {
-                if (!m.getName().equals("getNotificationChannelsForPackage")
-                        || m.getParameterCount() != 3) {
+                if (!m.getName().equals("getNotificationChannelsForPackage")) {
+                    continue;
+                }
+                if (m.getParameterCount() != 3) {
                     continue;
                 }
                 Object r = m.invoke(svc, pkg, uid, true);
@@ -36,9 +38,17 @@ public final class Notif {
                 }
                 if (r != null) {
                     try {
-                        Object l = r.getClass().getMethod("getList").invoke(r);
-                        if (l instanceof List) {
-                            return (List<NotificationChannel>) l;
+                        Method gl = null;
+                        for (Class<?> k = r.getClass(); k != null && gl == null; k = k.getSuperclass()) {
+                            try { gl = k.getDeclaredMethod("getList"); }
+                            catch (NoSuchMethodException ignored) { }
+                        }
+                        if (gl != null) {
+                            gl.setAccessible(true);
+                            Object l = gl.invoke(r);
+                            if (l instanceof List) {
+                                return (List<NotificationChannel>) l;
+                            }
                         }
                     } catch (Throwable ignore) {
                     }

@@ -24,6 +24,12 @@ public final class State {
     public final Set<String> req = new LinkedHashSet<>();     // requested dangerous perms (manifest)
     public final Map<String, Integer> appops = new LinkedHashMap<>();
     public final Map<String, Integer> channels = new LinkedHashMap<>();
+    /**
+     * P0-1: 渠道显示名，与 {@link #channels} 同键。
+     * 渠道被清数据删掉后需要靠它重建；只存 importance 会把名字丢成渠道 id。
+     * 老快照没有这个字段，读取侧按缺失处理。
+     */
+    public final Map<String, String> chanName = new LinkedHashMap<>();
     public boolean doze;
     public String startup;
     private static boolean sDozeDisabled = false;
@@ -110,12 +116,20 @@ public final class State {
         try {
             Object svc = Notif.service();
             for (NotificationChannel ch : Notif.channels(svc, pkg, uid)) {
-                s.channels.put(pkg + "|" + uid + "|" + ch.getId(), ch.getImportance());
+                String key = pkg + "|" + uid + "|" + ch.getId();
+                s.channels.put(key, ch.getImportance());
+                if (ch.getName() != null) {
+                    s.chanName.put(key, ch.getName().toString());
+                }
             }
             java.util.List<Object[]> px = sProxyMap.get(pkg);
             if (px != null) {
                 for (Object[] o : px) {
-                    s.channels.put(o[0] + "|" + o[1] + "|" + o[2], (Integer) o[3]);
+                    String key = o[0] + "|" + o[1] + "|" + o[2];
+                    s.channels.put(key, (Integer) o[3]);
+                    if (o.length > 4 && o[4] != null) {
+                        s.chanName.put(key, String.valueOf(o[4]));
+                    }
                 }
             }
         } catch (Throwable t) {
@@ -148,6 +162,14 @@ public final class State {
                 chs.put(e.getKey(), e.getValue());
             }
             o.put("channels", chs);
+            // P0-1: 渠道显示名（老快照没有这个字段，读取侧按缺失处理）
+            JSONObject names = new JSONObject();
+            for (Map.Entry<String, String> e : chanName.entrySet()) {
+                if (e.getValue() != null) {
+                    names.put(e.getKey(), e.getValue());
+                }
+            }
+            o.put("chanName", names);
             o.put("doze", doze);
             if (startup != null) {
                 o.put("startup", startup);
@@ -188,6 +210,17 @@ public final class State {
             for (java.util.Iterator<String> it = chs.keys(); it.hasNext(); ) {
                 String k = it.next();
                 s.channels.put(k, chs.optInt(k));
+            }
+        }
+        // P0-1: 渠道显示名（可选，老快照没有）
+        JSONObject names = o.optJSONObject("chanName");
+        if (names != null) {
+            for (java.util.Iterator<String> it = names.keys(); it.hasNext(); ) {
+                String k = it.next();
+                String v = names.optString(k, null);
+                if (v != null && !v.isEmpty()) {
+                    s.chanName.put(k, v);
+                }
             }
         }
         return s;
@@ -249,7 +282,8 @@ public final class State {
                 }
                 NotificationChannel c = ownerCh.get(cid);
                 if (c == null || c.getImportance() != e.getValue()) {
-                    missChans.add(new Object[]{ownerPkg, ownerUid, cid, e.getValue(), c != null});
+                    // P0-1: 同 restoreAll，传活对象（此方法目前无调用者，保持与 applyChannels 契约一致）
+                    missChans.add(new Object[]{ownerPkg, ownerUid, cid, e.getValue(), c});
                 }
             }
         }
@@ -318,7 +352,9 @@ public final class State {
                     ownerCache.put(oc, ownerCh);
                 }
                 NotificationChannel c = ownerCh.get(cid);
-                chans.add(new Object[]{ownerPkg, ownerUid, cid, e.getValue(), c != null});
+                // P0-1: 第 5 个元素传「活渠道对象」（可能为 null），而不是布尔。
+                // 渠道仍在时只改 importance，绝不重建对象（重建会把名字/声音等打回默认）。
+                chans.add(new Object[]{ownerPkg, ownerUid, cid, e.getValue(), c});
             }
             changed |= applyChannels(chans);
         }
@@ -392,7 +428,9 @@ public final class State {
                 }
                 NotificationChannel c = ownerCh.get(cid);
                 if (c == null || c.getImportance() != e.getValue()) {
-                    chans.add(new Object[]{ownerPkg, ownerUid, cid, e.getValue(), c != null});
+                    // P0-1: 第 5 个元素传「活渠道对象」（可能为 null），而不是布尔。
+                // 渠道仍在时只改 importance，绝不重建对象（重建会把名字/声音等打回默认）。
+                chans.add(new Object[]{ownerPkg, ownerUid, cid, e.getValue(), c});
                 }
             }
             changed |= applyChannels(chans);
@@ -442,17 +480,75 @@ public final class State {
             int ownerUid = (Integer) o[1];
             String cid = (String) o[2];
             int imp = (Integer) o[3];
-            boolean exists = (Boolean) o[4];
-            if (exists) {
-                Notif.update(svc, ownerPkg, ownerUid, new NotificationChannel(cid, cid, imp));
+            Object live = o[4];
+            if (live instanceof NotificationChannel) {
+                // P0-1: 渠道还在 —— 只改 importance 再回写。
+                // 系统侧是 r.channels.put(id, updatedChannel) 整对象替换，所以必须回传「原对象」；
+                // 之前传 new NotificationChannel(cid, cid, imp) 会把名字/描述/声音/震动/灯/角标
+                // 全部打回默认值（渠道名会变成渠道 id）。
+                NotificationChannel ch = (NotificationChannel) live;
+                ch.setImportance(imp);
+                Notif.update(svc, ownerPkg, ownerUid, ch);
             } else {
-                boolean ok = Notif.create(svc, ownerPkg, ownerUid, new NotificationChannel(cid, cid, imp));
+                // 渠道已被清数据删除 —— 只能用快照里存的显示名重建
+                String name = chanName.get(ownerPkg + "|" + ownerUid + "|" + cid);
+                if (name == null || name.isEmpty()) {
+                    name = cid;
+                    SystemHook.log("recreate channel without stored name, falling back to id: "
+                            + ownerPkg + " " + cid);
+                }
+                boolean ok = Notif.create(svc, ownerPkg, ownerUid,
+                        new NotificationChannel(cid, name, imp));
                 if (!ok) {
                     SystemHook.log("createChannel failed " + ownerPkg + " " + cid);
                 }
             }
         }
         return true;
+    }
+
+    /**
+     * P0-3: 校验 {@code after} 是否已把本快照的各类别恢复到位。
+     *
+     * <p>返回 {@code null} = 全部达标；否则返回未达标项的可读描述。
+     * 类别开关关闭、或本次无法判定（通知服务未就绪 / doze 不可用）时跳过，不计入失败 ——
+     * 否则会永远报 incomplete。
+     *
+     * <p>以前只校验 {@code after.perms ⊇ snap.perms}，AppOps / 通知 / Doze / 自启动
+     * 失败了也照样报 ok，故障被完全掩盖。
+     */
+    public String verify(State after, Config cfg, String pkg) {
+        StringBuilder miss = new StringBuilder();
+        if (cfg.catFor(pkg, "permissions")) {
+            for (String p : perms) {
+                if (!after.perms.contains(p)) {
+                    miss.append("perm:").append(p).append(' ');
+                }
+            }
+        }
+        if (cfg.catFor(pkg, "appops")) {
+            for (Map.Entry<String, Integer> e : appops.entrySet()) {
+                Integer a = after.appops.get(e.getKey());
+                if (a == null || !a.equals(e.getValue())) {
+                    miss.append("op:").append(e.getKey()).append(' ');
+                }
+            }
+        }
+        if (cfg.catFor(pkg, "notifications") && sNotifReady) {
+            for (Map.Entry<String, Integer> e : channels.entrySet()) {
+                Integer a = after.channels.get(e.getKey());
+                if (a == null || !a.equals(e.getValue())) {
+                    miss.append("chan:").append(e.getKey()).append(' ');
+                }
+            }
+        }
+        if (doze && !sDozeDisabled && !after.doze) {
+            miss.append("doze ");
+        }
+        if (cfg.catFor(pkg, "autostart") && startup != null && after.startup == null) {
+            miss.append("autostart ");
+        }
+        return miss.length() == 0 ? null : miss.toString().trim();
     }
 
     private static boolean grant(Context ctx, String pkg, String perm) {
