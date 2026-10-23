@@ -16,7 +16,6 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
@@ -87,9 +86,14 @@ public final class Meta {
                     Bitmap bmp = d == null ? null : toBitmap(d);
                     if (bmp != null) {
                         Bitmap scaled = Bitmap.createScaledBitmap(bmp, 96, 96, true);
-                        try (FileOutputStream of = new FileOutputStream(
-                                new File(iconDir, pi.packageName + ".png"))) {
+                        // P0-2: 图标也走「先写 .tmp 再 rename」，避免留下半张图
+                        File iconTmp = new File(iconDir, pi.packageName + ".png.tmp");
+                        File iconDst = new File(iconDir, pi.packageName + ".png");
+                        try (FileOutputStream of = new FileOutputStream(iconTmp)) {
                             scaled.compress(Bitmap.CompressFormat.PNG, 100, of);
+                        }
+                        if (!iconTmp.renameTo(iconDst)) {
+                            iconTmp.delete();
                         }
                     }
                 } catch (Throwable ignore) {
@@ -98,12 +102,8 @@ public final class Meta {
             }
             saveLabels(labels);
             new File("/data/system/permkeeper").mkdirs();
-            try (FileOutputStream fos = new FileOutputStream(FILE)) {
-                OutputStreamWriter w = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
-                w.write(arr.toString());
-                w.flush();
-                w.close();
-            }
+            // P0-2: 原子写
+            SystemHook.writeAtomic(new File(FILE), arr.toString());
             SystemHook.log("apps.json written: " + arr.length() + " apps");
         } catch (Throwable t) {
             SystemHook.log("writeAppsMeta failed: " + t);
@@ -124,12 +124,8 @@ public final class Meta {
     private static void saveLabels(JSONObject labels) {
         try {
             new File("/data/system/permkeeper").mkdirs();
-            try (FileOutputStream fos = new FileOutputStream(LABELS)) {
-                OutputStreamWriter w = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
-                w.write(labels.toString());
-                w.flush();
-                w.close();
-            }
+            // P0-2: 原子写
+            SystemHook.writeAtomic(new File(LABELS), labels.toString());
         } catch (Throwable t) {
             SystemHook.log("saveLabels failed: " + t);
         }

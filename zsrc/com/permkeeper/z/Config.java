@@ -4,8 +4,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashMap;
@@ -34,11 +32,11 @@ public final class Config {
 
     public static Config load() {
         Config c = new Config();
+        File f = new File(FILE);
+        if (!f.exists()) {
+            return c;
+        }
         try {
-            File f = new File(FILE);
-            if (!f.exists()) {
-                return c;
-            }
             String s = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
             JSONObject o = new JSONObject(s);
             c.all = o.optBoolean("all", false);
@@ -63,7 +61,12 @@ public final class Config {
                 }
             }
         } catch (Throwable t) {
-            SystemHook.log("config load failed: " + t);
+            // P0-2: 解析失败会静默回退成 all=false —— 也就是「不保护任何应用」。
+            // 把话说清楚，并把损坏文件留档，避免每次启动重复踩同一个坑。
+            SystemHook.log("config load failed: " + t
+                    + " -> falling back to defaults (all=false: NO app is protected)");
+            SystemHook.quarantine(f, "config");
+            return new Config();
         }
         return c;
     }
@@ -99,12 +102,8 @@ public final class Config {
                 ov.put(e.getKey(), e.getValue());
             }
             o.put("overrides", ov);
-            try (FileOutputStream fos = new FileOutputStream(FILE)) {
-                OutputStreamWriter w = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
-                w.write(o.toString(2));
-                w.flush();
-                w.close();
-            }
+            // P0-2: 原子写（.tmp + fsync + rename），避免截断
+            SystemHook.writeAtomic(new File(FILE), o.toString(2));
         } catch (Throwable t) {
             SystemHook.log("config save failed: " + t);
         }
