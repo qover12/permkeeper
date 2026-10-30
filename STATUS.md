@@ -196,3 +196,37 @@
 #### 遗留（bug 版本造成的副作用）
 - 快宝快递员 / 快宝驿站名下各有 4 个渠道残留在 **uid 1000** 下，`pm clear` 删不掉。
   如需彻底清除，卸载重装该应用即可。修复后的版本不会再产生此类残留。
+
+### 测试用例设计与首轮执行（2026-10-30）
+- 产出目录 `测试用例输出/permkeeper-2026-10-30/`：`rules.md`（69 条规则）、`cases.md`、`cases.csv`、`coverage.md`。
+- 用例 78 条：PERM 24 / SET 15 / INST 13 / COMPAT 10 / ENV 8 / JRN 8；每条挂规则ID，无孤儿。
+- 视角申报 119 行（基线 53 + PERM 11 + INST 11 + ENV 12 + COMPAT 15 + SET 17 + JRN 0），行数核验通过。
+- 已执行 27 条：PASS 25、FAIL 2（同一根因）。
+
+#### BUG-01（P2，已定位未修）：基线不清理已移出保护范围的应用
+- 现象：`baseline.json` 70 条里有 67 条属于 `exclude`；这些条目携带旧格式，149 条渠道中 147 条缺 `chanName`。
+- 根因：`scan()` 只对 `covered` 应用 `base.put()`，从不删除已经不受保护的条目。
+- 影响：基线膨胀 + 旧格式残留；应用重新纳入保护时，在下一次 scan 刷新前可能用到过期快照（渠道重建只能退回用 id 作名字）。因 `covers()` 在清数据入口有闸门，**不会误恢复**。
+- 建议修法：`scan()` 保存前剔除 `base.key ∉ covered` 的条目。
+
+#### 执行过程中被证伪的三个「疑似 bug」（均为测试脚本问题，不是模块问题）
+1. 导出「一次请求触发两次」——`adb logcat` 会先回放已有缓冲，把历史记录算进来；清缓冲后为 1 次。
+2. 导出包缺 `config` 字段——用 `adb push` 往 `/data/system/` 写文件，shell 身份无权限，文件没写进去。
+3. `PERM-009`/`SET-007`「无日志」——用 `touch` 触发重扫，`touch` 只产生 `IN_ATTRIB`，模块未监听该事件；改用「写一个名字含 notification 的探针文件」触发。
+
+#### 测试方法学沉淀
+- 触发重扫：`printf x > /data/system/notification_pk_probe; rm -f ...`（产生 CLOSE_WRITE）。
+- 抓模块日志必须先清缓冲（`adb logcat -c`）再起流，否则历史记录会污染计数。
+- 重启后实时流会断，但启动日志仍在环形缓冲里，可 `logcat -d` 取回。
+- `appops get` 输出带 `time=...` 时间戳，只能比模式不能比整串。
+- 向 `/data/system/` 写文件必须 `su 0 cp`，`adb push` 会静默失败。
+
+#### BUG-01 修复（2026-10-30）
+- `SystemHook.scan()` 保存基线前剔除 `key ∉ covered` 的条目。
+- 复测：`baseline.json` 由 70 条收缩到 **3 条**（仅受保护应用），缺 `chanName` 由 147 降为 **0**。
+- 用例 `TC-APP-PERM-001` / `TC-APP-PERM-006` 由 FAIL 转 PASS。
+
+#### 首轮执行汇总（34/78）
+- PASS 33、BLOCKED 1（`TC-APP-PERM-023`：空闲 CPU 11.12%，但缺「卸载模块」对照组，无法归因；代码审阅确认无周期定时器）、未执行 44。
+- 已覆盖：规则校验（基线结构/AppOps key/渠道 key/代理渠道）、清数据恢复（权限/AppOps/渠道 uid）、导出全链路（单次触发/进度单调/四字段/落盘）、配置边界（全排除/全纳入/includeSystem/还原）、损坏文件留档、冷启动注入、ROM 识别、日志方法学。
+- 其余 44 条阻塞原因：需 WebUI 交互（约 25 条）、需更多次真实清数据、本机不可构造（多用户/deviceidle 故障/HyperOS 时序）。

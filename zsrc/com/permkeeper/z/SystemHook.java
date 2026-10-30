@@ -565,6 +565,18 @@ public final class SystemHook {
             } catch (Throwable ignore) {
             }
         }
+        // 剔除已不在保护范围的旧条目。否则基线会随使用时间膨胀，并保留过期格式
+        // （例如早期快照没有 chanName），应用重新纳入保护时在下次扫描前会短暂用到它。
+        java.util.List<String> stale = new ArrayList<>();
+        for (Iterator<String> it = base.keys(); it.hasNext(); ) {
+            String k = it.next();
+            if (!covered.contains(k)) {
+                stale.add(k);
+            }
+        }
+        for (String k : stale) {
+            base.remove(k);
+        }
         saveBaseline(base);
     }
 
