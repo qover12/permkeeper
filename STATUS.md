@@ -154,3 +154,45 @@
 - 根因：该机 logcat ring buffer **仅 64 KiB**，3 分钟即产生 ~4400 行；等 15~90 秒再抓时模块日志已被冲掉。
 - 正确抓法：**先起实时 `logcat -s PermKeeperZ:I` 后台流，再触发清数据**，即可看到 `restored rounds=N ok`。
 - 另注：`su 0` 下执行 `pm clear` 需经 `su`（`adb shell su 0 pm clear <pkg>`）；以 `shell`(uid 2000) 身份执行会报 `CLEAR_APP_USER_DATA` 拒绝。
+
+### 真机测试：一加 PLU110（ColorOS 16 / Android 16）清数据恢复（本会话）
+- 设备：`3B663C00LY900000`（PLU110，Android 16 / SDK 36，ColorOS 16）。
+- 样本：快宝快递员 `com.kuaibao.skuaidi`、快宝驿站 `com.kuaidihelp.posthouse`、快递员揽派 `com.yunda.bmapp`。
+- 方法：先 `cp -a` 备份三应用的 `data` / `user_de` / `ext`（469MB，内容 md5 逐个核对一致），
+  再故意构造差异（授予一个新权限、撤销一个已有权限、把一个 AppOp 改成 ignore）→ 等 `scan` 写进基线 → `pm clear` → 比对真实系统状态。
+- 结果：
+
+| 类别 | 快宝快递员 | 快宝驿站 | 快递员揽派 |
+|---|---|---|---|
+| 运行时权限 | ✅ 16/16 | ✅ 14/14 | ✅ 14/14 |
+| AppOps | ✅ | ✅ | ✅ |
+| 通知渠道 | ❌ 3 轮全失败 | ❌ 3 轮全失败 | 无渠道，不适用 |
+| 省电 / 自启动 | ⚠️ 测不到（见下） | — | — |
+
+- **导出**：472 个应用 / 4.07 秒 / 单次请求只触发一次 / 进度严格递增（上次修复有效）。
+
+#### 发现并修复的 bug：重建的通知渠道落到 uid 1000
+- 现象：清数据后模块重建渠道，渠道挂到 `AppSettings: <pkg> (1000)`（system_server 的 uid），
+  应用自己 uid 名下 0 个渠道；日志 `restored rounds=3 incomplete: chan:<pkg>|<appUid>|…`。
+- 根因：`Notif.create()` 遍历 `INotificationManager` 方法时先匹配到**两参数**的
+  `createNotificationChannels(String, ParceledListSlice)` —— 该重载用**调用方 uid**（1000），
+  而不是应用 uid。方法返回顺序在不同系统版本上不保证一致，Xiaomi 上恰好没踩到。
+- 连带影响：恢复失败后 `scan` 把「应用名下 0 个渠道」当成新基线，
+  **原有渠道从基线里永久丢失**，下次清数据彻底失去保护。
+- 修复（`Notif.java`）：改为**两遍扫描**，优先用带 uid 的三参数重载，
+  只有它不存在时才退回两参数并打日志说明。
+- 修复后验证：用临时测试 APK `com.pkctrl`（3 个渠道 importance 2/4/0）→ 清数据 →
+  渠道全部回到应用自己的 uid、importance 与基线逐项一致、`restored rounds=1 ok`。
+
+#### 排除名单不恢复（T6）
+- 把 `com.pkctrl` 加进 `exclude` 后清数据：渠道**未被恢复**（为空），模块没有任何处理日志。
+
+#### 测试局限（不是模块问题）
+- **省电 / 自启动测不到**：两者存在系统文件（`deviceidle.xml` / ColorOS 启动 XML），
+  `pm clear` 根本不会清除，所以「清数据后恢复」这条路径覆盖不到它们。
+  本次只确认了它们没被破坏，无法证明恢复逻辑。
+- 清数据会丢登录态，测试后已从备份还原；三个应用启动正常、权限数与测试前一致。
+
+#### 遗留（bug 版本造成的副作用）
+- 快宝快递员 / 快宝驿站名下各有 4 个渠道残留在 **uid 1000** 下，`pm clear` 删不掉。
+  如需彻底清除，卸载重装该应用即可。修复后的版本不会再产生此类残留。
