@@ -131,15 +131,16 @@
 
 
 
+
 ## 三、执行状态汇总
 
 | 项 | 值 |
 |---|---|
 | 用例总数 | 78 |
-| 已执行 | 34 |
-| PASS | 33 |
+| 已执行 | 35 |
+| PASS | 34 |
 | FAIL | 0 |
-| BLOCKED / 未执行 | 44 |
+| BLOCKED / 未执行 | 43 |
 
 ### 3.1 按模块
 
@@ -150,7 +151,7 @@
 | 安装升级 | 13 | 5 | 5 | 0 | 8 |
 | 兼容性 | 10 | 3 | 3 | 0 | 7 |
 | 环境与性能 | 8 | 4 | 4 | 0 | 4 |
-| 端到端旅程 | 8 | 1 | 1 | 0 | 7 |
+| 端到端旅程 | 8 | 2 | 2 | 0 | 6 |
 
 ## 四、缺陷清单
 
@@ -172,7 +173,7 @@
 | 系统权限 | 8 | TC-APP-PERM-008, TC-APP-PERM-014, TC-APP-PERM-015, TC-APP-PERM-016, TC-APP-PERM-018, TC-APP-PERM-020, TC-APP-PERM-022, TC-APP-PERM-024 |
 | 安装升级 | 8 | TC-APP-INST-004, TC-APP-INST-007, TC-APP-INST-008, TC-APP-INST-009, TC-APP-INST-010, TC-APP-INST-011, TC-APP-INST-012, TC-APP-INST-013 |
 | 兼容性 | 7 | TC-APP-COMPAT-003, TC-APP-COMPAT-004, TC-APP-COMPAT-005, TC-APP-COMPAT-006, TC-APP-COMPAT-007, TC-APP-COMPAT-008, TC-APP-COMPAT-010 |
-| 端到端旅程 | 7 | TC-APP-JRN-002, TC-APP-JRN-003, TC-APP-JRN-004, TC-APP-JRN-005, TC-APP-JRN-006, TC-APP-JRN-007, TC-APP-JRN-008 |
+| 端到端旅程 | 6 | TC-APP-JRN-002, TC-APP-JRN-003, TC-APP-JRN-004, TC-APP-JRN-006, TC-APP-JRN-007, TC-APP-JRN-008 |
 | 环境与性能 | 4 | TC-APP-ENV-003, TC-APP-ENV-005, TC-APP-ENV-006, TC-APP-ENV-007 |
 
 主要阻塞原因：
