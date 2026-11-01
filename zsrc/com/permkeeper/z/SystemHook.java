@@ -96,6 +96,7 @@ public final class SystemHook {
             return false;
         }
         scan(ctx);
+        resumePendingRestores(ctx);
         watch(PERM_DIR, null);
         for (String p : sRom.extraWatchPaths()) {
             watch(p, null);
@@ -210,6 +211,10 @@ public final class SystemHook {
                     return;
                 }
                 State snap = State.fromJson(snapJson);
+                // 恢复前落一个「未完成」标记：若恢复过程中设备重启/进程被杀，
+                // 下次开机扫描会看到这个标记，从而不把「半恢复状态」写成新基线
+                // （否则会永久丢掉尚未恢复的权限/AppOps/渠道）。
+                markPending(pkg);
                 // HyperOS: PACKAGE_DATA_CLEARED can arrive BEFORE the runtime-permission reset.
                 // Wait for the permission store to settle, then restore; verify + retry as a safety net.
                 int rounds = 0;
@@ -242,6 +247,9 @@ public final class SystemHook {
                     base.put(pkg, snap.toJson());
                     saveBaseline(base);
                 } catch (Throwable ignore) {
+                }
+                if (ok) {
+                    clearPending(pkg);
                 }
                 String brief = miss.length() > 180 ? miss.substring(0, 180) + "..." : miss;
                 log("clear-data " + pkg + " restored rounds=" + rounds
@@ -297,6 +305,78 @@ public final class SystemHook {
             if (quiet >= 4 && System.currentTimeMillis() - t0 >= 1800) {
                 return;
             }
+        }
+    }
+
+    // ---- 恢复未完成标记（BUG-03）------------------------------------
+    private static final String PENDING_PREFIX = "restore.pending.";
+
+    private static File pendingFile(String pkg) {
+        return new File(BASE_DIR, PENDING_PREFIX + pkg);
+    }
+
+    private static void markPending(String pkg) {
+        try {
+            pendingFile(pkg).createNewFile();
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private static void clearPending(String pkg) {
+        try {
+            pendingFile(pkg).delete();
+        } catch (Throwable ignore) {
+        }
+    }
+
+    /** 开机后补做被中断的恢复；成功则清标记。 */
+    private static void resumePendingRestores(Context ctx) {
+        try {
+            File[] fs = new File(BASE_DIR).listFiles();
+            if (fs == null) {
+                return;
+            }
+            for (File f : fs) {
+                String n = f.getName();
+                if (!n.startsWith(PENDING_PREFIX)) {
+                    continue;
+                }
+                final String pkg = n.substring(PENDING_PREFIX.length());
+                EXEC.submit(() -> {
+                    try {
+                        Config cfg = Config.load();
+                        if (!cfg.covers(pkg)) {
+                            clearPending(pkg);
+                            return;
+                        }
+                        JSONObject snapJson = loadBaseline().optJSONObject(pkg);
+                        if (snapJson == null) {
+                            clearPending(pkg);
+                            return;
+                        }
+                        PackageInfo pi = ctx.getPackageManager()
+                                .getPackageInfo(pkg, PackageManager.GET_PERMISSIONS);
+                        if (pi.applicationInfo == null) {
+                            clearPending(pkg);
+                            return;
+                        }
+                        State snap = State.fromJson(snapJson);
+                        snap.restoreAll(ctx, pi, cfg, sRom);
+                        State after = State.capture(ctx, pi, sRom);
+                        String miss = snap.verify(after, cfg, pkg);
+                        if (miss == null) {
+                            clearPending(pkg);
+                            log("resume pending restore ok: " + pkg);
+                        } else {
+                            log("resume pending restore incomplete: " + pkg + " " + miss);
+                        }
+                    } catch (Throwable t) {
+                        log("resume pending restore failed: " + pkg + " " + t);
+                    }
+                });
+            }
+        } catch (Throwable t) {
+            log("resumePendingRestores failed: " + t);
         }
     }
 
@@ -557,6 +637,10 @@ public final class SystemHook {
             }
             String pkg = pi.packageName;
             if (!covered.contains(pkg)) {
+                continue;
+            }
+            if (pendingFile(pkg).exists()) {
+                // 上一次恢复被中断：保留旧基线，等 resumePendingRestores 收敛后再更新
                 continue;
             }
             State cur = State.capture(ctx, pi, sRom);

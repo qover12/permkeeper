@@ -284,3 +284,25 @@
   - BUG-01 已修（剔除不再受保护的条目）
   - BUG-02 关类别期间清数据 → 永久丢该类基线（用户决定维持现状）
   - BUG-03 恢复被打断 → 半恢复状态被固化为基线（待决策）
+
+### 第四轮：真机 UI（KsuWebUI）执行，50/78
+- 已执行 50 条：PASS 46、FAIL 1（BUG-03）、BLOCKED 3、未执行 28。
+- 本轮新增 PASS：
+  - `SET-001` 拨动类别开关 → 1.5s 内自动落盘、无「保存」按钮
+  - `COMPAT-007` KsuWebUI 桥接正常（加载 89 个应用、配置可写回）
+  - `INST-004` 导出进度层显示 `80/472 (17%)`、无取消按钮
+  - `INST-006` 产物落地 `/sdcard/Download/permkeeper/`（965KB），临时文件已清
+  - `INST-007` 完成 toast 绿色「导出成功：472 个应用，5.4 秒」
+  - `INST-008` 导入面板默认「全部应用」
+
+#### BUG-04（P2 可用性，已记录）：KsuWebUI 里「选择 JSON 文件」按钮无效
+- 实测：点击无反应；TAB 聚焦（有橙色焦点框）后回车也无反应；`dumpsys activity` 未出现 DocumentsUI/ChooserActivity。
+- 推测：KsuWebUI 的 WebView 未实现 `onShowFileChooser`，`input[type=file].click()` 静默失败（未证）。
+- 影响：用户只能「粘贴」导入，无法从文件选；README/界面未提示这一点。
+- 备选修法：把「选择文件」改成 WebUI 内读取 `/sdcard/Download/permkeeper/` 列表（用 exec 调 `ls` + `cat`），绕开 WebView 文件选择器。
+
+#### UI 自动化踩坑（供后续参考）
+- WebView 内容不暴露给 `uiautomator dump`（只 dump 到宿主节点），只能按像素定位或键盘导航。
+- 底部 sheet 的按钮落在系统手势区内，`input tap` 会被系统吞掉；`wm size` 改小后布局变化，坐标需重算（用 PIL 分析截图取按钮 bbox 更可靠）。
+- 键盘导航可用：`input keyevent 61`(TAB) 能聚焦按钮（有橙色焦点框），`66`(ENTER) 可触发；但文件按钮即使聚焦也无反应（见 BUG-04）。
+- `input text` 输入 JSON 会被输入法改写（引号丢失、弹出候选词），不可用于填 JSON。
