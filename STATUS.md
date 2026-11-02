@@ -306,3 +306,26 @@
 - 底部 sheet 的按钮落在系统手势区内，`input tap` 会被系统吞掉；`wm size` 改小后布局变化，坐标需重算（用 PIL 分析截图取按钮 bbox 更可靠）。
 - 键盘导航可用：`input keyevent 61`(TAB) 能聚焦按钮（有橙色焦点框），`66`(ENTER) 可触发；但文件按钮即使聚焦也无反应（见 BUG-04）。
 - `input text` 输入 JSON 会被输入法改写（引号丢失、弹出候选词），不可用于填 JSON。
+
+### 第五轮：性能/兼容类 + 修 BUG-04/BUG-05（52/78）
+- 已执行 **52 条**：PASS 52、FAIL 0、BLOCKED 3、未执行 23。
+- 本轮新增 PASS：
+  - `ENV-005` 冷启 `Displayed +189ms`；点卡片后 **1.14s** 页面完整加载（阈值 2.0s）
+  - `ENV-006` 列表滑动 10s：135 帧、新增 janky **0**、无 ANR/崩溃
+  - `COMPAT-008` 深色 + 1.3x 字体下渲染正常，点击开关后 `config.json` 的 `notifications` 由 true 变 false
+  - `PERM-008` 1.2s 内 5 次权限变动，15s 内 baseline 只变化 **1 次**（2.5s 防抖生效）
+  - `SET-002` 修复 BUG-05 后：80 次并发写 + 120 次采样，**0 空文件、0 解析失败**
+  - `JRN-007` 修复 BUG-03 后复测通过（基线未退化、`resume pending restore ok`）
+
+#### BUG-05（P1，已修复）：WebUI 保存配置非原子，可导致「全部应用失去保护」
+- 现象：40 次快速保存期间采样 6 份，**5 份为 0 字节**。
+- 根因：`module/permkeeper.sh` 的 `save_cfg()` 用 `cat > $CFG`，先截断后写入。
+- 影响链：模块恰在此刻读配置（如清数据时 `Config.load()`）→ 解析失败 → 回退 `all=false` → **所有应用都不受保护**，只在日志留一行。
+- 修法：写 `$CFG.tmp.$$` → chown/chmod/chcon → `mv -f` 覆盖（同分区 rename 原子）。
+- 复测：80 次并发写 + 120 次采样，0 空文件、0 解析失败。
+
+#### BUG-04（P2，已修复）：KsuWebUI 不支持文件选择
+- 修法：有 exec 桥时不再调 `input[type=file]`，改为 `ls /sdcard/Download/permkeeper/` 列出 json，
+  点选后 `cat` 读取内容填入输入框；文件名按 `^[A-Za-z0-9._-]+$` 校验后再拼路径，避免注入。
+- 保留无桥时的原生 file input 作为兜底。
+- 真机验证：面板里正确列出 `permkeeper-20261101-143739.json`。

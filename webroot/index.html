@@ -197,9 +197,10 @@
           <div class="desc" id="scopeHint" style="margin:6px 0 0"></div>
         </div>
         <textarea id="importBox" placeholder='{"permkeeper":2,...}'></textarea>
+        <div id="fileList" class="hidden" style="margin:8px 0 0"></div>
         <div class="bar" style="margin:12px 0 0">
           <button class="pri" id="btnApplyPaste">应用粘贴的内容</button>
-          <button id="btnPickFile">选择 JSON 文件</button>
+          <button id="btnPickFile">从下载目录选择</button>
         </div>
         <input type="file" id="fileInput" accept="application/json,.json" class="hidden">
       </div>
@@ -643,7 +644,45 @@ async function doImport(txt){
   }
 }
 $("btnApplyPaste").onclick=()=>doImport($("importBox").value);
-$("btnPickFile").onclick=()=>$("fileInput").click();
+$("btnPickFile").onclick=async()=>{
+  // KsuWebUI 的 WebView 未实现 onShowFileChooser，input[type=file].click() 无反应
+  // （实测：点击与 TAB+回车都不弹选择器）。所以有 exec 桥时改为列出下载目录里的文件，
+  // 用 cat 读内容，完全绕开 WebView 的文件选择器。
+  if(!bridge()){ $("fileInput").click(); return; }
+  let out="";
+  try{ out=await run(`ls -1 /sdcard/Download/permkeeper/ 2>/dev/null`); }catch(e){ out=""; }
+  const names=String(out||"").split("\n").map(s=>s.trim())
+    .filter(n=>n.endsWith(".json") && /^[A-Za-z0-9._-]+$/.test(n));
+  const box=$("fileList");
+  box.innerHTML="";
+  if(!names.length){ toastInfo("下载目录里没有可导入的 JSON"); return; }
+  names.forEach(n=>{
+    const d=document.createElement("div");
+    d.className="row link";
+    d.style.margin="6px 0";
+    const t=document.createElement("div");
+    t.className="grow";
+    const ti=document.createElement("div");
+    ti.className="title";
+    ti.textContent=n;
+    t.appendChild(ti);
+    const chev=document.createElement("span");
+    chev.className="chev";
+    chev.textContent="›";
+    d.appendChild(t); d.appendChild(chev);
+    d.onclick=async()=>{
+      try{
+        const txt=await run(`cat '/sdcard/Download/permkeeper/${n}'`);
+        if(!txt||!String(txt).trim()){ toastInfo("文件为空"); return; }
+        $("importBox").value=String(txt);
+        box.classList.add("hidden");
+        doImport(String(txt));
+      }catch(e){ log("读取失败: "+e.message); toast("读取失败","err"); }
+    };
+    box.appendChild(d);
+  });
+  box.classList.remove("hidden");
+};
 $("fileInput").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=()=>{const tx=String(r.result);$("importBox").value=tx;doImport(tx);};r.readAsText(f);e.target.value="";});
 

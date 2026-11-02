@@ -7,10 +7,19 @@ EXP=/sdcard/Download/permkeeper
 
 save_cfg() {
   # stdin -> config.json with correct owner/context
-  cat > "$CFG"
-  chown system:system "$CFG"
-  chmod 600 "$CFG"
-  chcon u:object_r:system_data_file:s0 "$CFG" 2>/dev/null
+  # 必须原子写：直接 `cat > $CFG` 会先截断，中间存在文件为空的窗口。
+  # 若模块恰在此刻读取（例如清数据时 Config.load），解析失败会回退成
+  # all=false —— 即「所有应用都不受保护」，且只在日志里留一行。
+  # 实测：40 次快速写入期间采样 6 份，5 份为 0 字节。
+  tmp="$CFG.tmp.$$"
+  if ! cat > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  chown system:system "$tmp"
+  chmod 600 "$tmp"
+  chcon u:object_r:system_data_file:s0 "$tmp" 2>/dev/null
+  mv -f "$tmp" "$CFG"
 }
 
 case "$1" in
