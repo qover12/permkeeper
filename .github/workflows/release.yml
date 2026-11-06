@@ -32,8 +32,21 @@ jobs:
       - name: Build module
         run: python3 build_zygisk.py
 
+      - name: 生成更新日志（中文，取自提交记录）
+        run: |
+          PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF}^" 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            RANGE="$PREV..$GITHUB_REF"
+            echo "更新范围：$RANGE" > CHANGELOG.md
+          else
+            RANGE="$GITHUB_REF"
+            echo "首次发布" > CHANGELOG.md
+          fi
+          echo "" >> CHANGELOG.md
+          git log --no-merges --pretty='- %s' "$RANGE" >> CHANGELOG.md
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: out/permkeeper-zygisk.zip
-          generate_release_notes: true
+          body_path: CHANGELOG.md
